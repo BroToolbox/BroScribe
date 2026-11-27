@@ -361,7 +361,7 @@ class Workflow(unittest.TestCase):
         step = self.jobs["capture"].split("      - name: Upload the failure diagnostics\n", 1)[1]
         self.assertEqual(
             "        if: failure()\n"
-            "        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n"
+            "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9\n"
             "        with:\n"
             "          name: screenshots-diagnostics\n"
             "          path: ${{ runner.temp }}/screenshots-diagnostics\n"
