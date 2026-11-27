@@ -188,6 +188,11 @@ def common_paths(encoding: str) -> re.Pattern[bytes]:
 
 COMMON_PATHS = tuple(common_paths(encoding) for encoding in ENCODINGS)
 
+# Fixed strings that the common patterns misread. Rust packs string constants
+# back to back, so AT-SPI's D-Bus root object followed by another D-Bus path
+# reads as `.../accessible/root/org/...` in accesskit_unix's read-only data.
+NOT_PATHS = (b"/org/a11y/atspi/accessible/root",)
+
 
 def forbidden_paths(paths, upstream=()):
     explicit_posix, explicit_windows = path_needles(paths)
@@ -208,9 +213,10 @@ def forbidden_paths(paths, upstream=()):
             data = data.replace(needle, b"\0" * len(needle))
         for needle in upstream_windows:
             data = re.sub(re.escape(needle), b"\0" * len(needle), data, flags=re.IGNORECASE)
-        for pattern in COMMON_PATHS:
-            if match := pattern.search(data):
-                return match.group()
-        return None
+        for needle in NOT_PATHS:
+            data = data.replace(needle, b"\0" * len(needle))
+        # Report every distinct match, so one run shows each leak.
+        found = dict.fromkeys(match.group() for pattern in COMMON_PATHS for match in pattern.finditer(data))
+        return b", ".join(found) or None
 
     return contains
