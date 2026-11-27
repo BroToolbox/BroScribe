@@ -15,6 +15,7 @@
 # Cargo's registry cache and the Linux target folder live in named Docker
 # volumes, never in the host's target/. CARGO_BUILD_JOBS (default 4) caps
 # parallel rustc/link jobs so the final links fit Docker Desktop's memory.
+# CARGO_PROFILE_DEV_DEBUG, when set, reaches the container unchanged.
 set -euo pipefail
 
 # rust:1.100.0-trixie (multi-arch index), verified from Docker Hub on 2026-11-16.
@@ -71,12 +72,19 @@ fi
 read -r -d '' inner <<EOF || true
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# The container is thrown away after this run: skip dpkg's fsyncs and the
+# documentation, manual pages and translations of the build packages.
+printf 'force-unsafe-io\n' >/etc/dpkg/dpkg.cfg.d/broscribe-unsafe-io
+printf '%s\n' 'path-exclude=/usr/share/doc/*' 'path-exclude=/usr/share/man/*' \
+  'path-exclude=/usr/share/locale/*' >/etc/dpkg/dpkg.cfg.d/broscribe-no-docs
+echo "installing the native build packages"
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   libpipewire-0.3-dev libspa-0.2-dev libasound2-dev libclang-dev clang pkg-config cmake \
   libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev libwayland-dev \
   libfontconfig-dev libfreetype-dev libvulkan-dev libzstd-dev libssl-dev \
   build-essential git bzip2 ca-certificates curl ffmpeg python3 >/dev/null
+echo "native build packages installed"
 cd /src
 rustup component add clippy --toolchain "$IMAGE_TOOLCHAIN"
 third_party/sherpa-onnx/fetch.sh --target "$ARCHIVE_TARGET"
@@ -105,6 +113,7 @@ EOF
 exec docker run --rm --platform "$PLATFORM" \
   -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" \
   -e CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}" \
+  -e CARGO_PROFILE_DEV_DEBUG \
   -v "${root}:/src" \
   -v "${VOLUME_NAME}-cargo:/usr/local/cargo/registry" \
   -v "${VOLUME_NAME}-target:/target" \

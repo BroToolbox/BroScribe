@@ -19,10 +19,10 @@ validate permissions, device capture and the signed packages.
 | Job | Runner | Runs |
 |---|---|---|
 | `supply-chain` | `ubuntu-24.04` | `scripts/check-publish-age.py Cargo.lock` (three-day minimum age, yanked versions, no git sources); the shipping-script unit tests (`python3 -m unittest discover -s scripts/tests`, offline fixtures); `cargo fmt --all --check` |
-| `macos` | `macos-15` (Apple silicon) | checks for an arm64 host, Xcode and CMake; `fetch.sh --target osx-arm64`; Clippy with `-D warnings` and `cargo test --workspace` through `scripts/build-target.sh aarch64-apple-darwin`; checks the macOS third-party licence inventory; fails if `Cargo.lock` changed |
-| `linux` (arm64) | `ubuntu-24.04-arm` | `scripts/docker-linux-test.sh`: the digest-pinned `rust:1.100.0-trixie` image, linux-aarch64 sherpa-onnx by checksum, rejection of any `metal` feature, Clippy, `cargo build --locked --all-targets`, `cargo test --locked` and the licence inventory for the workspace; fails if `Cargo.lock` changed |
+| `macos` | `macos-15` (Apple silicon) | checks for an arm64 host, Xcode and CMake; `fetch.sh --target osx-arm64`; Clippy with `-D warnings` and `cargo test --workspace` through `scripts/build-target.sh aarch64-apple-darwin`, keeping only line tables in dev/test debug info; checks the macOS third-party licence inventory; fails if `Cargo.lock` changed |
+| `linux` (arm64) | `ubuntu-24.04-arm` | `scripts/docker-linux-test.sh`: the digest-pinned `rust:1.100.0-trixie` image, linux-aarch64 sherpa-onnx by checksum, rejection of any `metal` feature, Clippy, `cargo build --locked --all-targets`, `cargo test --locked` and the licence inventory for the workspace, with four Cargo jobs and line-table-only dev/test debug info; fails if `Cargo.lock` changed |
 | `linux` (x64) | `ubuntu-24.04` | `scripts/docker-linux-test.sh --amd64`: the same steps with linux-x64 sherpa-onnx, using the pinned Rust distribution on a digest-pinned Ubuntu 24.04 userland |
-| `windows` | `windows-2025` | two parallel lanes on separate runners. Both load the x64 environment with `VsDevCmd.bat`, put the MSVC linker first in Git Bash, use a short Cargo target path and the runner's default Cargo job count, check for CMake and run `fetch.sh --target win-x64`; dev/test builds keep only line tables (`CARGO_PROFILE_DEV_DEBUG=line-tables-only`). **clippy and tests:** Clippy with `-D warnings` and workspace fake/synthetic tests (which also compile the examples) through the explicit `x86_64-pc-windows-msvc` wrapper. **release build:** release `cargo build --workspace` of the libraries and executables; runs `cleanup-matcher.Tests.ps1` in separate Windows PowerShell 5.1 and PowerShell 7 steps; checks the Windows third-party licence inventory. Each lane fails if `Cargo.lock` changed. No Windows hardware or desktop-runtime claim |
+| `windows` | `windows-2025` | two parallel lanes on separate runners. Both load the x64 environment with `VsDevCmd.bat`, put the MSVC linker first in Git Bash, use a short Cargo target path and the runner's default Cargo job count, check for CMake and run `fetch.sh --target win-x64`; dev/test builds keep only line tables (`CARGO_PROFILE_DEV_DEBUG=line-tables-only`). **tests:** workspace fake/synthetic tests (which also compile the examples) through the explicit `x86_64-pc-windows-msvc` wrapper. **clippy and release build:** Clippy with `-D warnings`, then release `cargo build --workspace` of the libraries and executables; runs `cleanup-matcher.Tests.ps1` in separate Windows PowerShell 5.1 and PowerShell 7 steps; checks the Windows third-party licence inventory. Each lane fails if `Cargo.lock` changed. No Windows hardware or desktop-runtime claim |
 | `merge-gate` (**BroScribe CI**) | `ubuntu-24.04` | succeeds only when every job above succeeded; this is the required status check |
 
 Rules the workflow follows:
@@ -39,7 +39,7 @@ Local equivalents: `cargo fmt --all`, `cargo clippy --workspace --all-targets --
 ### README screenshots
 
 The [screenshots workflow](../.github/workflows/screenshots.yml) is not a
-required check. It runs on every push to `main`, on pull requests into `main`
+required check. It runs on pushes to `main` and pull requests into `main`
 that change `crates/`, `third_party/`, the Cargo files, `rust-toolchain.toml`,
 `.cargo/`, `scripts/linux-desktop/`, `scripts/docker-linux-test.sh` or the
 workflow itself, and on `workflow_dispatch`; never on
@@ -58,7 +58,8 @@ older runs. The `publish` job, the only one
 with `contents: write`, runs only for pushes and manual runs on `main` in
 `BroToolbox/BroScribe`. It validates the artifact as data (exact file names,
 PNG structure, 1280×800, size limits, recomputed hashes, the manifest's commit),
-does nothing when `main` has moved on, when the published screenshots come
+does nothing when `main` has moved on with a later change to those paths (a
+newer run publishes) or no longer contains the commit, when the published screenshots come
 from the same or a newer commit, or when the pixels are unchanged (a failed
 fetch or history comparison fails the job instead), and
 otherwise force-pushes one orphan commit to the generated `screenshots`
