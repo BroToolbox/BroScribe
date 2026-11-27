@@ -388,8 +388,14 @@ fn import_search_name_rebuild_forget_tag() {
     assert_eq!(code, 0, "{output}{notices}");
     let imported: Value = serde_json::from_str(&output).unwrap();
     // Pipeline callbacks belong to this invocation's injected stream,
-    // never process-global stderr or the machine-readable result.
-    assert!(notices.contains(wav.to_str().unwrap()), "{notices}");
+    // never process-global stderr or the machine-readable result. The
+    // notice may name the canonical path (Windows runners' TEMP is an 8.3
+    // short name such as RUNNER~1, shown as \\?\C:\Users\runneradmin).
+    let canonical = std::fs::canonicalize(&wav).unwrap();
+    assert!(
+        notices.contains(wav.to_str().unwrap()) || notices.contains(canonical.to_str().unwrap()),
+        "{notices}"
+    );
     assert!(!output.contains("decoding"), "{output}");
     let id = imported["meeting_id"].as_str().unwrap().to_owned();
     assert!(id.starts_with("m-"));

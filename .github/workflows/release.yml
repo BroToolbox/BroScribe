@@ -137,7 +137,9 @@ jobs:
           Join-Path $vc 'bin/Hostx64/x64' | Add-Content $env:GITHUB_PATH
           "BROSCRIBE_MSVC_BIN=$(Join-Path $vc 'bin/Hostx64/x64')" | Add-Content $env:GITHUB_ENV
           "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'bs')" | Add-Content $env:GITHUB_ENV
-          'CARGO_BUILD_JOBS=1' | Add-Content $env:GITHUB_ENV
+          # Dev/test builds keep line tables only: readable backtraces, much smaller
+          # objects and PDBs, faster MSVC links. The release profile is unchanged.
+          'CARGO_PROFILE_DEV_DEBUG=line-tables-only' | Add-Content $env:GITHUB_ENV
 
       - name: Install the pinned native toolchain and verify inputs
         run: |
@@ -354,7 +356,7 @@ jobs:
           echo "stem=$stem" >> "$GITHUB_OUTPUT"
 
       - name: Upload verified artifact, checksum and provenance
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ matrix.platform }}${{ steps.macos.outputs.status && format('-{0}', steps.macos.outputs.status) || '' }}${{ steps.windows_sign.outputs.status && format('-{0}', steps.windows_sign.outputs.status) || '' }}
           path: ${{ env.CARGO_TARGET_DIR }}/dist/${{ steps.macos.outputs.stem || steps.linux.outputs.stem || steps.windows.outputs.stem }}.*
@@ -387,7 +389,7 @@ jobs:
           git log -1 --format='checked out %H'
 
       - name: Download verified packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           path: artifacts
 
