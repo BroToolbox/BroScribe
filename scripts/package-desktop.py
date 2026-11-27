@@ -73,8 +73,14 @@ def build_native(target: str, target_dir: Path, remaps: dict[str, Path], bash: s
             raise ValueError(f"unset {name} before a release build")
     spellings = build_root_spellings(remaps)
     flags = [f"--remap-path-prefix={source}=/{label}" for label, source in spellings]
+    linker = None
     if windows:
         env["MSYS2_ARG_CONV_EXCL"] = "*"
+        # Git Bash puts its usr/bin first, where coreutils `link` shadows the
+        # MSVC linker rustc would find on PATH. Name MSVC's linker explicitly.
+        linker = shutil.which("link.exe")
+        if not linker or not (Path(linker).parent / "cl.exe").is_file():
+            raise ValueError("put the MSVC tools (link.exe beside cl.exe) first on PATH")
         # rustc and CMake can spell a Windows path with either separator.
         flags = list(dict.fromkeys(
             f"--remap-path-prefix={path}=/{label}" for label, source in spellings
@@ -97,11 +103,19 @@ def build_native(target: str, target_dir: Path, remaps: dict[str, Path], bash: s
         name = f"{language}_{target_key}"
         env[name] = " ".join(value for value in (env.get(name), maps) if value)
     # --config appends these to the repository's MSVC +crt-static rustflags.
-    # RUSTFLAGS would discard that required target policy.
+    # RUSTFLAGS would discard that required target policy. The flags go in a
+    # file: Git Bash's argument parser turns the escaped backslashes of an
+    # inline TOML value into invalid escapes. JSON strings are TOML strings.
     packages = ["broscribe-cli" if name == "broscribe" else name for name in BINARIES]
-    run(bash, "scripts/build-target.sh", target, "build", "--locked", "--release",
-        "--config", f"target.{target}.rustflags={json.dumps(flags)}",
-        *(arg for package in packages for arg in ("-p", package)), env=env)
+    with tempfile.TemporaryDirectory(prefix="broscribe-rustflags-") as scratch:
+        config = Path(scratch) / "rustflags.toml"
+        table = f"[target.{target}]\nrustflags = {json.dumps(flags)}\n"
+        if linker:
+            table += f"linker = {json.dumps(linker)}\n"
+        config.write_text(table, encoding="utf-8")
+        run(bash, "scripts/build-target.sh", target, "build", "--locked", "--release",
+            "--config", config.as_posix(),
+            *(arg for package in packages for arg in ("-p", package)), env=env)
 
 
 def check_windows_imports(release_dir: Path) -> None:

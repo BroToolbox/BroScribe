@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -19,6 +20,7 @@ from support import REPO, SCRIPTS, load_script
 
 from desktop_artifacts import (
     BINARIES, DESKTOP, ICONS, LICENCES, TARGETS, build_root_spellings, build_roots, builder_paths,
+    forbidden_paths,
     json_bytes, json_object, release_files,
 )
 
@@ -310,9 +312,11 @@ class DesktopArtifacts(unittest.TestCase):
                 windows = target == WINDOWS
                 name, binary = ("broscribe.exe", pe()) if windows else ("broscribe", elf(TARGETS[target][2]))
                 self.emit(build, {**files, name: (binary + upstream, 0o755)})
-                with self.assertRaisesRegex(ValueError, "forbidden builder or home"):
+                with self.assertRaisesRegex(ValueError, "forbidden builder or home") as raised:
                     self.emit(build, {**files, name: (binary + b"\0".join((upstream, builder)), 0o755)},
                               forbid=["/opt/runner/scratch"])
+                # The message names the match so a CI log shows what leaked.
+                self.assertIn(builder.decode()[:12].lower(), str(raised.exception).lower())
 
         build, files = self.fixture(LINUX[1])
         other_target = cases[0][1]
@@ -321,6 +325,16 @@ class DesktopArtifacts(unittest.TestCase):
         build, files = self.fixture(LINUX[0])
         with self.assertRaisesRegex(ValueError, "forbidden builder or home"):
             self.emit(build, {**files, "NOTICE": (cases[0][1], 0o644)})
+
+    def test_dbus_object_paths_are_not_home_paths(self):
+        # accesskit_unix's packed read-only strings: the root object, then
+        # another D-Bus path, read as `.../root/org/...`.
+        packed = b"\0/org/a11y/atspi/accessible/root/org/a11y/atspi/cache\0"
+        self.assertIsNone(forbidden_paths([])(packed))
+        explicit = forbidden_paths(["/org/a11y/atspi"])
+        self.assertEqual(explicit(packed), b"/org/a11y/atspi")
+        leaks = b"\0/root/.cargo/x.rs\0/home/dev/y.rs\0/root/.cargo/x.rs\0"
+        self.assertEqual(forbidden_paths([])(leaks), b"/root/.cargo/, /home/dev/")
 
     def test_overlap_skips_only_home_and_keeps_actual_build_roots(self):
         roots = {
@@ -400,14 +414,19 @@ class DesktopArtifacts(unittest.TestCase):
         # The Linux builder runs only on Linux. On a Windows test host the
         # fixture still exercises expansion and verifier roots above.
         if os.name != "nt":
-            with patch.object(package, "run") as run:
+            with patch.object(package, "run", side_effect=self.read_rustflags) as run:
                 package.build_native(LINUX[0], roots["__build_target__"].resolve(), roots, "/bin/bash")
-            config = next(arg for arg in run.call_args.args if ".rustflags=" in arg)
+            config = self.rustflags_config
             native = run.call_args.kwargs["env"][f"CFLAGS_{LINUX[0].replace('-', '_')}"]
             for label, root in roots.items():
                 for path in (root, root.resolve()):
                     self.assertIn(f"--remap-path-prefix={path}=/{label}", config)
                     self.assertIn(f"-ffile-prefix-map={path}=/{label}", native)
+
+    def read_rustflags(self, *command, **kwargs):
+        config = Path(command[command.index("--config") + 1])
+        self.assertTrue(config.is_absolute())
+        self.rustflags_config = config.read_text(encoding="utf-8")
 
     def test_explicit_runner_root_overrides_a_native_path_exception(self):
         build, files = self.fixture(LINUX[0])
@@ -424,6 +443,10 @@ class DesktopArtifacts(unittest.TestCase):
             "__build_target__": PureWindowsPath(r"D:\a\_temp\bs"),
         }
         bash = r"C:\Program Files\Git\bin\bash.exe"
+        self.msvc = self.root / "MSVC/bin/Hostx64/x64"
+        self.msvc.mkdir(parents=True)
+        for tool in ("link.exe", "cl.exe"):
+            (self.msvc / tool).touch()
         cflags = "CFLAGS_x86_64_pc_windows_msvc"
         cxxflags = "CXXFLAGS_x86_64_pc_windows_msvc"
         expected = [f"/d1trimfile:{form}" for _, root in build_root_spellings(roots)
@@ -431,13 +454,30 @@ class DesktopArtifacts(unittest.TestCase):
         for shell_flags in ("1", "0"):
             with self.subTest(shell_flags=shell_flags):
                 env = {cflags: "/DSYNTHETIC_C", cxxflags: "/DSYNTHETIC_CXX", "CC_SHELL_ESCAPED_FLAGS": shell_flags}
-                with patch.dict(os.environ, env, clear=True), patch.object(package, "run") as run:
+                with patch.dict(os.environ, env, clear=True), \
+                        patch.object(package.shutil, "which", return_value=str(self.msvc / "link.exe")), \
+                        patch.object(package, "run", side_effect=self.read_rustflags) as run:
                     package.build_native(WINDOWS, roots["__build_target__"], roots, bash)
                 self.assertEqual(run.call_args.args[:2], (bash, "scripts/build-target.sh"))
+                # Git Bash collapses escaped backslashes in a quoted argument,
+                # so no argument may carry the TOML value inline.
+                self.assertFalse(any("\\" in arg for arg in run.call_args.args[2:]))
+                rustflags = tomllib.loads(self.rustflags_config)["target"][WINDOWS]["rustflags"]
+                for _, root in build_root_spellings(roots):
+                    self.assertIn(f"--remap-path-prefix={root}=/{_}", rustflags)
+                self.assertEqual(rustflags[-1], "-Clink-arg=/PDBALTPATH:%_PDB%")
+                linker = tomllib.loads(self.rustflags_config)["target"][WINDOWS]["linker"]
+                self.assertEqual(linker, str(self.msvc / "link.exe"))
                 forwarded = run.call_args.kwargs["env"]
                 split = shlex.split if shell_flags == "1" else str.split
                 self.assertEqual(split(forwarded[cflags]), ["/DSYNTHETIC_C", *expected])
                 self.assertEqual(split(forwarded[cxxflags]), ["/DSYNTHETIC_CXX", *expected])
+        # Git's coreutils link has no cl.exe beside it.
+        coreutils = self.root / "Git/usr/bin/link.exe"
+        with patch.object(package.shutil, "which", return_value=str(coreutils)), patch.object(package, "run") as run:
+            with self.assertRaisesRegex(ValueError, "MSVC tools"):
+                package.build_native(WINDOWS, roots["__build_target__"], roots, bash)
+        run.assert_not_called()
 
     def test_git_bash_is_preferred_to_wsl_and_used_for_the_pin_check(self):
         wsl, git = self.root / "System32/bash.exe", self.root / "Git/cmd/git.exe"

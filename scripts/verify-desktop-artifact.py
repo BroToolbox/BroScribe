@@ -158,8 +158,10 @@ def inspect(artifact: Path, suffix: str, target: str, machine: int, forbid: list
                 executable_files.add(relative)
             data = archive.extractfile(entry).read() if linux else archive.read(entry)
             check_data = scan_binary if relative in binaries else scan
-            if check_data(data) or scan(raw.encode("utf-8")):
-                raise ValueError(f"{relative} contains a forbidden builder or home path")
+            if found := check_data(data) or scan(raw.encode("utf-8")):
+                # Name the match: the build log is the only place to find it.
+                shown = found.replace(b"\0", b"").decode("utf-8", "backslashreplace")
+                raise ValueError(f"{relative} contains a forbidden builder or home path: {shown}")
             if relative in binaries:
                 try:
                     elf_runpath(data, machine) if linux else check_pe(data)

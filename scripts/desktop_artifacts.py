@@ -188,23 +188,35 @@ def common_paths(encoding: str) -> re.Pattern[bytes]:
 
 COMMON_PATHS = tuple(common_paths(encoding) for encoding in ENCODINGS)
 
+# Fixed strings that the common patterns misread. Rust packs string constants
+# back to back, so AT-SPI's D-Bus root object followed by another D-Bus path
+# reads as `.../accessible/root/org/...` in accesskit_unix's read-only data.
+NOT_PATHS = (b"/org/a11y/atspi/accessible/root",)
+
 
 def forbidden_paths(paths, upstream=()):
     explicit_posix, explicit_windows = path_needles(paths)
     upstream_posix, upstream_windows = path_needles(upstream)
 
-    def contains(data: bytes) -> bool:
+    def contains(data: bytes) -> bytes | None:
+        """Return the first forbidden path found, or None."""
         # An exception can never override a specifically forbidden build root.
-        if any(needle in data for needle in explicit_posix):
-            return True
+        for needle in explicit_posix:
+            if needle in data:
+                return needle
         if explicit_windows:
             folded = data.lower()
-            if any(needle in folded for needle in explicit_windows):
-                return True
+            for needle in explicit_windows:
+                if needle in folded:
+                    return needle
         for needle in upstream_posix:
             data = data.replace(needle, b"\0" * len(needle))
         for needle in upstream_windows:
             data = re.sub(re.escape(needle), b"\0" * len(needle), data, flags=re.IGNORECASE)
-        return any(pattern.search(data) for pattern in COMMON_PATHS)
+        for needle in NOT_PATHS:
+            data = data.replace(needle, b"\0" * len(needle))
+        # Report every distinct match, so one run shows each leak.
+        found = dict.fromkeys(match.group() for pattern in COMMON_PATHS for match in pattern.finditer(data))
+        return b", ".join(found) or None
 
     return contains
