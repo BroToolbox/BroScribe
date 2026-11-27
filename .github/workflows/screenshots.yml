@@ -20,8 +20,20 @@
 name: screenshots
 
 on:
+  # Only commits that can change the pictures. Keep both lists and
+  # SCREENSHOT_PATHS in `publish` identical (scripts/tests).
   push:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'third_party/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - 'scripts/linux-desktop/**'
+      - 'scripts/docker-linux-test.sh'
+      - '.github/workflows/screenshots.yml'
   pull_request:
     branches: [main]
     paths:
@@ -162,8 +174,31 @@ jobs:
 
           head="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [[ "$head" != "$GITHUB_SHA" ]]; then
-            echo "main is now at ${head}; a newer run publishes its screenshots."
-            exit 0
+            # Pushes that touch none of these paths start no run, so a newer
+            # run exists only if a later commit changed one of them.
+            SCREENSHOT_PATHS=(
+              'crates/**' 'third_party/**' 'Cargo.toml' 'Cargo.lock' 'rust-toolchain.toml' '.cargo/**'
+              'scripts/linux-desktop/**' 'scripts/docker-linux-test.sh' '.github/workflows/screenshots.yml'
+            )
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --quiet --no-tags --unshallow origin "$GITHUB_SHA"
+            fi
+            git fetch --quiet --no-tags origin "$head"
+            ancestor=0
+            git merge-base --is-ancestor "$GITHUB_SHA" "$head" || ancestor=$?
+            if ((ancestor == 1)); then
+              echo "main is now at ${head}, which does not contain ${GITHUB_SHA}; not publishing."
+              exit 0
+            elif ((ancestor != 0)); then
+              echo "Could not compare ${GITHUB_SHA} with ${head} (status ${ancestor})." >&2
+              exit 1
+            fi
+            changed="$(git diff --name-only "$GITHUB_SHA" "$head" -- "${SCREENSHOT_PATHS[@]/#/:(glob)}")"
+            if [[ -n "$changed" ]]; then
+              echo "main is now at ${head}; a newer run publishes its screenshots."
+              exit 0
+            fi
+            echo "main is now at ${head}, with no screenshot input changed since ${GITHUB_SHA}; publishing."
           fi
           tip="$(git ls-remote origin refs/heads/screenshots | cut -f1)"
           published="$RUNNER_TEMP/published-manifest.json"

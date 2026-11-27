@@ -278,15 +278,21 @@ class Workflow(unittest.TestCase):
 
     def test_triggers_never_use_pull_request_target(self):
         self.assertNotIn("pull_request_target", self.workflow)
-        self.assertIn("push:\n    branches: [main]", self.header)
+        self.assertIn("push:\n    branches: [main]\n    paths:", self.header)
         self.assertIn("pull_request:\n    branches: [main]\n    paths:", self.header)
         self.assertIn("workflow_dispatch:", self.header)
-        paths = re.findall(r"^      - '([^']+)'$", self.header, flags=re.MULTILINE)
-        self.assertEqual([
+        expected = [
             "crates/**", "third_party/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**",
             "scripts/linux-desktop/**", "scripts/docker-linux-test.sh",
             ".github/workflows/screenshots.yml",
-        ], paths)
+        ]
+        push, pull_request = self.header.split("\n  pull_request:\n", 1)
+        for trigger in (push, pull_request.split("\n  workflow_dispatch:", 1)[0]):
+            self.assertEqual(expected, re.findall(r"^      - '([^']+)'$", trigger, flags=re.MULTILINE))
+        # publish recognises a newer run by the same paths.
+        listed = self.jobs["publish"].split("SCREENSHOT_PATHS=(\n", 1)[1].split("\n            )\n", 1)[0]
+        self.assertEqual(expected, re.findall(r"'([^']+)'", listed))
+        self.assertIn('"${SCREENSHOT_PATHS[@]/#/:(glob)}"', self.jobs["publish"])
 
     def test_least_privilege(self):
         self.assertRegex(self.header, r"(?m)^permissions: \{\}$")
@@ -404,8 +410,11 @@ class PublishStep(unittest.TestCase):
         return subprocess.run(["git", *args], cwd=cwd, env=env, check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    def commit_main(self, label):
-        (self.source / "change.txt").write_text(label)
+    def commit_main(self, label, path="crates/change.txt"):
+        # By default a screenshot input changes (a crate), as in a run that
+        # the workflow's path filter starts.
+        (self.source / path).parent.mkdir(parents=True, exist_ok=True)
+        (self.source / path).write_text(label)
         self.git("add", "--all", cwd=self.source)
         self.git("commit", "--quiet", "-m", label, cwd=self.source)
         self.git("push", "--quiet", str(self.remote), "HEAD:refs/heads/main", cwd=self.source)
@@ -466,6 +475,35 @@ class PublishStep(unittest.TestCase):
         new_tip, _, parents, source = self.branch()
         self.assertNotEqual(tip, new_tip)
         self.assertEqual(("", third), (parents, source))
+
+    def test_publishes_when_later_commits_change_no_screenshot_input(self):
+        first = self.commit_main("first")
+        self.commit_main("docs", path="docs/notes.md")
+        self.commit_main("readme", path="README.md")
+        out = self.publish(first, 10)
+        self.assertIn("no screenshot input changed", out)
+        self.assertIn("Published", out)
+        self.assertEqual(first, self.branch()[3])
+
+    def test_skips_when_a_later_commit_changes_a_screenshot_input(self):
+        for path in ("Cargo.lock", "scripts/linux-desktop/seed.py", ".github/workflows/screenshots.yml"):
+            with self.subTest(path=path):
+                first = self.commit_main(f"first {path}")
+                self.commit_main(f"docs {path}", path="docs/notes.md")
+                self.commit_main(f"input {path}", path=path)
+                self.assertIn("a newer run publishes", self.publish(first, 10))
+                self.assertIsNone(self.branch())
+
+    def test_skips_when_main_no_longer_contains_the_commit(self):
+        first = self.commit_main("first")
+        self.git("checkout", "--quiet", "--orphan", "rewritten", cwd=self.source)
+        (self.source / "docs").mkdir(exist_ok=True)
+        (self.source / "docs/notes.md").write_text("rewritten")
+        self.git("add", "--all", cwd=self.source)
+        self.git("commit", "--quiet", "-m", "rewritten", cwd=self.source)
+        self.git("push", "--quiet", "--force", str(self.remote), "HEAD:refs/heads/main", cwd=self.source)
+        self.assertIn("does not contain", self.publish(first, 10))
+        self.assertIsNone(self.branch())
 
     def test_skips_stale_runs(self):
         first = self.commit_main("first")

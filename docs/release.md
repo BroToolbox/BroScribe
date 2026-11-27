@@ -39,7 +39,7 @@ Local equivalents: `cargo fmt --all`, `cargo clippy --workspace --all-targets --
 ### README screenshots
 
 The [screenshots workflow](../.github/workflows/screenshots.yml) is not a
-required check. It runs on every push to `main`, on pull requests into `main`
+required check. It runs on pushes to `main` and pull requests into `main`
 that change `crates/`, `third_party/`, the Cargo files, `rust-toolchain.toml`,
 `.cargo/`, `scripts/linux-desktop/`, `scripts/docker-linux-test.sh` or the
 workflow itself, and on `workflow_dispatch`; never on
@@ -58,7 +58,8 @@ older runs. The `publish` job, the only one
 with `contents: write`, runs only for pushes and manual runs on `main` in
 `BroToolbox/BroScribe`. It validates the artifact as data (exact file names,
 PNG structure, 1280×800, size limits, recomputed hashes, the manifest's commit),
-does nothing when `main` has moved on, when the published screenshots come
+does nothing when `main` has moved on with a later change to those paths (a
+newer run publishes) or no longer contains the commit, when the published screenshots come
 from the same or a newer commit, or when the pixels are unchanged (a failed
 fetch or history comparison fails the job instead), and
 otherwise force-pushes one orphan commit to the generated `screenshots`
