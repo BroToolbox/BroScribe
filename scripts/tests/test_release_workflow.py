@@ -156,7 +156,11 @@ class ReleaseWorkflow(unittest.TestCase):
         builds = re.findall(r'msvc_bin="\$\(cygpath -u "\$BROSCRIBE_MSVC_BIN"\)"\n'
                             r' +export PATH="\$msvc_bin:\$PATH"\n'
                             r' +scripts/build-target.sh x86_64-pc-windows-msvc (\w+)', ci)
-        self.assertEqual(builds, ["clippy", "build", "build", "test"])
+        # Debug lane: Clippy, then tests (which also build the examples).
+        # Release lane: the shipped libraries and executables only.
+        self.assertEqual(builds, ["clippy", "test", "build"])
+        self.assertIn("x86_64-pc-windows-msvc build --locked --workspace --release\n", ci)
+        self.assertNotIn("CARGO_BUILD_JOBS", ci.split("\n  merge-gate:\n", 1)[0])
 
     def test_windows_timestamp_is_optional_and_a_missing_requested_timestamp_fails(self):
         signing = self.jobs["build"].split("        id: windows_sign", 1)[1].split("      - name:", 1)[0]

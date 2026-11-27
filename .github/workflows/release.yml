@@ -137,7 +137,9 @@ jobs:
           Join-Path $vc 'bin/Hostx64/x64' | Add-Content $env:GITHUB_PATH
           "BROSCRIBE_MSVC_BIN=$(Join-Path $vc 'bin/Hostx64/x64')" | Add-Content $env:GITHUB_ENV
           "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'bs')" | Add-Content $env:GITHUB_ENV
-          'CARGO_BUILD_JOBS=1' | Add-Content $env:GITHUB_ENV
+          # Dev/test builds keep line tables only: readable backtraces, much smaller
+          # objects and PDBs, faster MSVC links. The release profile is unchanged.
+          'CARGO_PROFILE_DEV_DEBUG=line-tables-only' | Add-Content $env:GITHUB_ENV
 
       - name: Install the pinned native toolchain and verify inputs
         run: |

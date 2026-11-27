@@ -201,10 +201,17 @@ jobs:
           scripts/docker-linux-test.sh "${args[@]}"
           git diff --exit-code -- Cargo.lock
 
+  # Two parallel lanes on separate runners. They share no build output: Clippy
+  # and the debug tests reuse one dev-profile build-script run (whisper.cpp),
+  # while the release build compiles everything again with its own profile.
   windows:
-    name: Windows x86-64 MSVC (clippy, debug/release, tests)
+    name: Windows x86-64 MSVC (${{ matrix.lane }})
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [clippy and tests, release build]
     runs-on: windows-2025
-    timeout-minutes: 150
+    timeout-minutes: 120
     env:
       MSBUILDDISABLENODEREUSE: "1"
     steps:
@@ -259,7 +266,9 @@ jobs:
           Join-Path $vc 'bin/Hostx64/x64' | Add-Content $env:GITHUB_PATH
           "BROSCRIBE_MSVC_BIN=$(Join-Path $vc 'bin/Hostx64/x64')" | Add-Content $env:GITHUB_ENV
           "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'bs')" | Add-Content $env:GITHUB_ENV
-          'CARGO_BUILD_JOBS=1' | Add-Content $env:GITHUB_ENV
+          # Dev/test builds keep line tables only: readable backtraces, much smaller
+          # objects and PDBs, faster MSVC links. The release profile is unchanged.
+          'CARGO_PROFILE_DEV_DEBUG=line-tables-only' | Add-Content $env:GITHUB_ENV
 
       - name: Install the pinned Rust toolchain (MSVC host)
         run: |
@@ -277,44 +286,47 @@ jobs:
         run: third_party/sherpa-onnx/fetch.sh --target win-x64
 
       - name: Clippy (warnings are errors)
+        if: matrix.lane == 'clippy and tests'
         run: |
           set -euo pipefail
           msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
           export PATH="$msvc_bin:$PATH"
           scripts/build-target.sh x86_64-pc-windows-msvc clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Cleanup matcher (Windows PowerShell 5.1)
-        shell: powershell
-        run: powershell.exe -NoProfile -File crates/broscribe-platform-windows/tests/cleanup-matcher.Tests.ps1
-
-      - name: Cleanup matcher (PowerShell 7)
-        shell: pwsh
-        run: pwsh -NoProfile -File crates/broscribe-platform-windows/tests/cleanup-matcher.Tests.ps1
-
+      # cargo test also compiles every example, so a separate debug
+      # `build --all-targets` would only repeat this work.
       # Linking and fake/synthetic tests are distinct from Windows hardware,
       # permissions, UI Automation, credentials, tray and GUI acceptance.
-      - name: Workspace debug build, all targets
-        run: |
-          set -euo pipefail
-          msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
-          export PATH="$msvc_bin:$PATH"
-          scripts/build-target.sh x86_64-pc-windows-msvc build --locked --workspace --all-targets
-
-      - name: Workspace release build, all targets
-        run: |
-          set -euo pipefail
-          msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
-          export PATH="$msvc_bin:$PATH"
-          scripts/build-target.sh x86_64-pc-windows-msvc build --locked --workspace --all-targets --release
-
       - name: Workspace tests (fakes and synthetic fixtures)
+        if: matrix.lane == 'clippy and tests'
         run: |
           set -euo pipefail
           msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
           export PATH="$msvc_bin:$PATH"
           scripts/build-target.sh x86_64-pc-windows-msvc test --locked --workspace --no-fail-fast
 
+      - name: Cleanup matcher (Windows PowerShell 5.1)
+        if: matrix.lane == 'release build'
+        shell: powershell
+        run: powershell.exe -NoProfile -File crates/broscribe-platform-windows/tests/cleanup-matcher.Tests.ps1
+
+      - name: Cleanup matcher (PowerShell 7)
+        if: matrix.lane == 'release build'
+        shell: pwsh
+        run: pwsh -NoProfile -File crates/broscribe-platform-windows/tests/cleanup-matcher.Tests.ps1
+
+      # The shipped libraries and executables link with the release profile.
+      # Test and example targets are already built and run in the debug lane.
+      - name: Workspace release build (libraries and executables)
+        if: matrix.lane == 'release build'
+        run: |
+          set -euo pipefail
+          msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
+          export PATH="$msvc_bin:$PATH"
+          scripts/build-target.sh x86_64-pc-windows-msvc build --locked --workspace --release
+
       - name: Verify the Windows third-party licence inventory
+        if: matrix.lane == 'release build'
         env:
           # cargo metadata is UTF-8; Windows Python otherwise decodes it as cp1252.
           PYTHONUTF8: "1"
