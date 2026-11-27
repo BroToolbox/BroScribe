@@ -1,0 +1,135 @@
+[workspace]
+members = ["crates/*"]
+exclude = ["spikes/*", "third_party/gpui-pre-0.3.12"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+# Cargo 1.100 is the first release that enforces [registry] global-min-publish-age.
+rust-version = "1.100"
+license = "Apache-2.0"
+version = "0.1.0"
+publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Every version below was published at least 3 days before it was added
+# (AGENTS.md, "Dependencies"); Cargo.lock is checked by scripts/check-publish-age.py.
+[workspace.dependencies]
+broscribe-core = { path = "crates/broscribe-core" }
+broscribe-platform = { path = "crates/broscribe-platform" }
+broscribe-platform-macos = { path = "crates/broscribe-platform-macos" }
+broscribe-platform-native = { path = "crates/broscribe-platform-native" }
+broscribe-models = { path = "crates/broscribe-models" }
+broscribe-pipeline = { path = "crates/broscribe-pipeline" }
+broscribe-detect = { path = "crates/broscribe-detect" }
+broscribe-dsp = { path = "crates/broscribe-dsp" }
+broscribe-ipc = { path = "crates/broscribe-ipc" }
+broscribe-platform-unix = { path = "crates/broscribe-platform-unix" }
+broscribe-readers = { path = "crates/broscribe-readers" }
+broscribe-capture = { path = "crates/broscribe-capture" }
+broscribe-integrations = { path = "crates/broscribe-integrations" }
+broscribe-updates = { path = "crates/broscribe-updates" }
+broscribe-update-runner = { path = "crates/broscribe-update-runner" }
+broscribed = { path = "crates/broscribed" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde-saphyr = "2.1.1"
+toml = "0.9.8"
+thiserror = "2.0.21"
+clap = { version = "4.6.7", features = ["derive"] }
+sha2 = "0.11.1"
+base64 = "0.23.1"
+chrono = { version = "0.4.45", features = ["serde", "clock"] }
+rand = "0.10.3"
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
+symphonia = { version = "0.6.1", default-features = false, features = ["isomp4", "aac", "mp3", "pcm", "wav", "flac", "ogg", "vorbis"] }
+# Exact pin: sherpa-onnx 2.0.1 locks sherpa-onnx-sys =2.0.1, whose prebuilt native
+# archive third_party/sherpa-onnx/pins.sh pins by version, SHA-256 and size; the
+# fetch and build scripts refuse a Cargo.lock that locks any other binding version.
+sherpa-onnx = "=2.0.1"
+# whisper.cpp built from source (cmake); GPU backends via `broscribe-models/metal`.
+whisper-rs = "0.16.0"
+# Static text embeddings from local files only: no hf-hub (`local-only`);
+# `onig` pre-tokenizer regexes as upstream's default.
+model2vec-rs = { version = "0.4.0", default-features = false, features = ["onig", "local-only"] }
+rmcp = { version = "=3.9.0", features = ["server", "transport-io", "macros"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-std", "sync", "time"] }
+schemars = "1.2.3"
+ureq = { version = "=3.5.1", features = ["platform-verifier"] }
+tar = "0.4.46"
+bzip2 = "0.6.1"
+tempfile = "3.27.0"
+# Already locked through tar; native directory-mtime fixtures only.
+filetime = "=0.2.29"
+libc = "0.2.191"
+tracing = "0.1.44"
+# The subscriber writes to stderr only: stdout is reserved for command output and MCP.
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# The whole UI line through one crate (design §13): gpui-kit re-exports GPUI
+# (gpui-pre =0.3.12) at its root, gpui-component as `gpui::component`,
+# gpui-base as `gpui::base`, gpui-kit-assets as `gpui::assets` and the
+# platform crate as `gpui::platform`. Keeping the dependency key `gpui` keeps
+# `#[gpui::test]`, `actions!` and every `gpui::` path working. The kit always
+# enables the platform crate's `font-kit` (without it the macOS backend renders
+# no text), `runtime_shaders` (Metal shaders compiled at window creation: a
+# build-time metallib records a builder path that
+# scripts/verify-macos-artifact.py rightly refuses) and the Linux `x11` and
+# `wayland` backends (without them the Linux app opens no window and has no
+# AT-SPI tree). Its optional `gpui-fast` backend stays off.
+gpui = { package = "gpui-kit", version = "=0.10.0" }
+# The SVG renderer GPUI itself locks (same version, no new crate); used only by
+# the app's render_brand example to regenerate brand files.
+resvg = { version = "=0.46.0", default-features = false, features = ["text"] }
+# The borrowed native window handle GPUI's windows expose; the version GPUI
+# itself locks, so the recording overlay adds no new crate.
+raw-window-handle = "=0.6.2"
+futures = { version = "0.3.34", default-features = false, features = ["std"] }
+# Platform crates (macOS). Features are chosen per crate.
+cpal = "0.18.2"
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-avf-audio = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-core-services = { version = "0.3.2", default-features = false, features = ["std"] }
+# Accessibility API (AXUIElement / AXObserver) for meeting-app readers (M5).
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std"] }
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
+# Core Audio HAL (process objects, process taps) and CoreGraphics window list (M4).
+objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std"] }
+# Keychain generic passwords (SecretStore, plan M2 §2).
+security-framework = "3.7.0"
+# Offline echo handling (plan M4 §4): FFT cross-correlation and AEC3 (pure Rust, BSD-3).
+rustfft = "6.4.1"
+sonora = "0.3.0"
+
+# The pinned Apache-2.0 base enables selector geometry in release test-support
+# builds. Normal shipping graphs do not enable that dev-only feature.
+[patch.crates-io]
+gpui-pre = { path = "third_party/gpui-pre-0.3.12" }
+
+# Release executables keep line tables in a separate symbol file (a packed
+# dSYM on macOS) so crash reports can be symbolicated; scripts/bundle-macos.sh
+# archives the symbols beside the app and strips the bundled executables.
+[profile.release]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+# Candidate release settings, compared by scripts/compare-release-profiles.sh.
+# The release profile adopts one only after a recorded measurement shows a gain.
+[profile.release-thin-lto]
+inherits = "release"
+lto = "thin"
+
+[profile.release-cgu1]
+inherits = "release"
+codegen-units = 1

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1000 1000" role="img" aria-label="scribe Bro mascot editable vector"><defs>
+<linearGradient id="shell-fill" x1=".1" y1=".1" x2=".84" y2=".95" objectBoundingBox="true"><stop offset="0" stop-color="#FFFAF7"/><stop offset="0.53" stop-color="#F7F0ED"/><stop offset="1" stop-color="#DECFD7"/></linearGradient>
+<radialGradient id="visor-fill" cx=".51" cy=".30" r=".9"><stop offset="0" stop-color="#343041"/><stop offset=".72" stop-color="#211F30"/><stop offset="1" stop-color="#151620"/></radialGradient>
+<linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C49BFF"/><stop offset=".55" stop-color="#8E56E9"/><stop offset="1" stop-color="#592AAB"/></linearGradient>
+<linearGradient id="shadow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#36313E"/><stop offset="1" stop-color="#181824"/></linearGradient>
+<linearGradient id="tile" x1=".1" y1=".05" x2=".9" y2="1"><stop offset="0" stop-color="#383343"/><stop offset="1" stop-color="#1A1A27"/></linearGradient>
+<filter id="soft"><feGaussianBlur stdDeviation="15"/></filter>
+<filter id="glow"><feGaussianBlur stdDeviation="5"/></filter>
+</defs>
+<g id="background"><rect x="12" y="12" width="976" height="976" rx="226" fill="url(#tile)"/></g>
+<g id="ground-shadow"><ellipse cx="500" cy="812" rx="300" ry="40" fill="#16111F" opacity="0.20" filter="url(#soft)"/></g>
+<g id="feet"><ellipse cx="385" cy="753" rx="68" ry="61" fill="url(#shadow)"/><ellipse cx="618" cy="753" rx="68" ry="61" fill="url(#shadow)"/></g>
+<g id="shell"><path d="M503 174 C703 169 825 282 822 496 C820 699 726 787 500 790 C270 788 175 694 179 487 C182 281 307 172 503 174 Z" fill="url(#shell-fill)"/><path d="M281 339 C333 245 430 225 504 221" stroke="#FFFFFF" stroke-width="19" opacity=".29" fill="none" stroke-linecap="round"/></g>
+<g id="headphones"><path d="M216 420 C210 157 344 109 501 109 C673 109 799 180 790 421" fill="none" stroke="#342441" stroke-width="84" stroke-linecap="round"/><path d="M216 416 C221 182 347 139 501 139 C656 139 778 198 790 416" fill="none" stroke="url(#accent)" stroke-width="53" stroke-linecap="round"/></g>
+<g id="earcups"><rect x="119" y="372" width="160" height="281" rx="80" fill="url(#accent)"/><rect x="746" y="372" width="160" height="281" rx="80" fill="url(#accent)"/><ellipse cx="200" cy="512" rx="57" ry="112" fill="#3A255A"/><ellipse cx="818" cy="512" rx="57" ry="112" fill="#3A255A"/><g stroke="#D3B1FF" stroke-width="15" stroke-linecap="round"><path d="M164 512 V512"/><path d="M187 476 V551"/><path d="M210 454 V571"/><path d="M234 482 V544"/></g><g stroke="#D3B1FF" stroke-width="15" stroke-linecap="round"><path d="M854 512 V512"/><path d="M831 476 V551"/><path d="M808 454 V571"/><path d="M784 482 V544"/></g></g>
+<g id="crown"><rect x="367" y="153" width="268" height="76" rx="38" fill="url(#accent)"/></g>
+<g id="visor"><rect x="253" y="332" width="496" height="383" rx="159" fill="#FFF9FC"/><rect x="268" y="346" width="467" height="352" rx="143" fill="url(#visor-fill)"/><path d="M334 387 Q492 330 652 392" fill="none" stroke="#97909E" opacity=".16" stroke-width="16" stroke-linecap="round"/></g>
+<g id="face"><rect x="418" y="434" width="33" height="95" rx="16.5" fill="#FCFBFF"/><rect x="546" y="434" width="33" height="95" rx="16.5" fill="#FCFBFF"/><text x="499" y="639" text-anchor="middle" font-family="Inter, Manrope, Arial, sans-serif" font-size="92" font-weight="650" fill="#C69BFF">Bro_</text></g>
+</svg>

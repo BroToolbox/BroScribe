@@ -1,0 +1,21 @@
+# Supply-chain rule: never resolve a crate version published less than 3 days ago.
+# Enforced by Cargo 1.100+ (the resolver default is "deny": too-new versions are
+# ignored unless already in Cargo.lock); the workspace's rust-version is 1.100 and
+# the build scripts refuse an older Cargo. scripts/check-publish-age.py also
+# checks every locked version's age and yank state.
+[registry]
+global-min-publish-age = "3 days"
+
+# sherpa-onnx-sys downloads native libraries without a checksum unless this is set.
+# third_party/sherpa-onnx/fetch.sh fills the folder after checking the archive's
+# pinned SHA-256 and size and records that pin in lib/.verified, so a changed pin
+# refetches (docs/design.md §13); if the folder is missing, the build fails
+# instead of downloading. An explicit SHERPA_ONNX_LIB_DIR in the environment
+# (scripts/build-target.sh, scripts/bundle-macos.sh) takes precedence.
+[env]
+SHERPA_ONNX_LIB_DIR = { value = "third_party/sherpa-onnx/lib", relative = true }
+
+# Match the pinned sherpa-onnx Windows /MT libraries. The target wrapper also
+# selects the same CRT for whisper.cpp's CMake configurations.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

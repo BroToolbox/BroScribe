@@ -1,0 +1,76 @@
+{
+  "linux": [
+    [
+      "LICENSE",
+      "NOTICE",
+      "THIRD_PARTY_NOTICES.txt",
+      "third-party-inventory.json",
+      "build-info.json",
+      "broscribe-app",
+      "broscribe",
+      "broscribed",
+      "broscribe-worker",
+      "broscribe-update-runner",
+      "install.sh",
+      "share/applications/org.broscribe.BroScribe.desktop",
+      "share/icons/hicolor/22x22/apps/org.broscribe.BroScribe.png",
+      "share/icons/hicolor/32x32/apps/org.broscribe.BroScribe.png",
+      "share/icons/hicolor/64x64/apps/org.broscribe.BroScribe.png",
+      "share/icons/hicolor/128x128/apps/org.broscribe.BroScribe.png"
+    ],
+    [
+      "LICENSE",
+      "NOTICE",
+      "THIRD_PARTY_NOTICES.txt",
+      "third-party-inventory.json",
+      "build-info.json",
+      "broscribe-app",
+      "broscribe",
+      "broscribed",
+      "broscribe-worker",
+      "broscribe-update-runner",
+      "install.sh",
+      "share/applications/org.broscribe.BroScribe.desktop",
+      "share/icons/hicolor/22x22/apps/org.broscribe.BroScribe.png",
+      "share/icons/hicolor/32x32/apps/org.broscribe.BroScribe.png",
+      "share/icons/hicolor/64x64/apps/org.broscribe.BroScribe.png",
+      "share/icons/hicolor/128x128/apps/org.broscribe.BroScribe.png",
+      "uninstall.sh"
+    ]
+  ],
+  "windows": [
+    [
+      "LICENSE",
+      "NOTICE",
+      "THIRD_PARTY_NOTICES.txt",
+      "third-party-inventory.json",
+      "build-info.json",
+      "broscribe-app.exe",
+      "broscribe.exe",
+      "broscribed.exe",
+      "broscribe-worker.exe",
+      "broscribe-update-runner.exe"
+    ]
+  ],
+  "macos": [
+    [
+      "Contents/Info.plist",
+      "Contents/MacOS/broscribe-app",
+      "Contents/MacOS/broscribe",
+      "Contents/MacOS/broscribe-worker",
+      "Contents/MacOS/broscribe-update-runner",
+      "Contents/Library/LoginItems/BroScribe Agent.app/Contents/Info.plist",
+      "Contents/Library/LoginItems/BroScribe Agent.app/Contents/MacOS/broscribed",
+      "Contents/Library/LaunchAgents/org.broscribe.broscribed.plist",
+      "Contents/Resources/LICENSE",
+      "Contents/Resources/NOTICE",
+      "Contents/Resources/THIRD_PARTY_NOTICES.txt",
+      "Contents/Resources/third-party-inventory.json",
+      "Contents/Resources/build-info.json",
+      "Contents/Resources/BroScribe.icns",
+      "Contents/_CodeSignature/CodeResources",
+      "Contents/Library/LoginItems/BroScribe Agent.app/Contents/_CodeSignature/CodeResources",
+      "Contents/CodeResources"
+    ]
+  ]
+}

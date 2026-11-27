@@ -1,0 +1,33 @@
+[package]
+name = "broscribe-pipeline"
+description = "BroScribe processing jobs: decode, transcribe, diarize, identify, import"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+broscribe-core.workspace = true
+broscribe-capture.workspace = true
+broscribe-dsp.workspace = true
+broscribe-ipc.workspace = true
+broscribe-models.workspace = true
+broscribe-readers.workspace = true
+broscribe-integrations.workspace = true
+broscribe-platform.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# LinearResampler (16 kHz conversion, design §6.3).
+sherpa-onnx.workspace = true
+# Calibration runs in a temporary library (plan §13.7).
+tempfile.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+broscribe-dsp = { workspace = true, features = ["fixtures"] }
+
+[lints]
+workspace = true

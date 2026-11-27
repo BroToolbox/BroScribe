@@ -1,0 +1,4 @@
+# Ed25519 public keys, one lowercase hex key per line.
+# BroScribe release key (key_id 8f2ce0c9193a3cc6), created 2026-11-25. Its seed is
+# kept by the owner outside the repository and reaches CI only as UPDATE_SIGNING_KEY.
+126c174ab1686ff87b2bc7063072af711b761a06f7a725ee692433aaaac06d79

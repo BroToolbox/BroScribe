@@ -1,0 +1,465 @@
+# Built-in model registry (design §8.3). SHA-256 and sizes were computed from the
+# downloaded files on 2026-11-14. A user file <data_dir>/models.toml with the same
+# [[model]] format adds models or replaces entries with the same id.
+
+[[model]]
+id = "silero-vad"
+display_name = "Silero VAD"
+roles = ["vad"]
+runtime = "onnx"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = false
+
+# Explicit Silero VAD configuration for 16 kHz input (32 ms windows). The adapter
+# also splits any region longer than 30 s at its quietest 32 ms frame.
+[model.params]
+threshold = 0.5
+min_silence_duration = 0.5
+min_speech_duration = 0.25
+max_speech_duration = 28.0
+window_size = 512
+buffer_s = 60.0
+num_threads = 1
+
+[[model.files]]
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx"
+sha256 = "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396"
+bytes = 2313101
+archive = false
+
+[[model]]
+id = "parakeet-tdt-0.6b-v3"
+display_name = "Parakeet TDT 0.6B v3"
+roles = ["live", "asr"]
+runtime = "onnx"
+platforms = ["macos", "windows", "linux"]
+# The 25 European languages of Parakeet TDT 0.6B v3 (automatic language detection).
+languages = [
+  "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it",
+  "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+]
+license = "CC-BY-4.0"
+license_verified = true
+# Hotwords need modified beam search and a BPE vocabulary the archive lacks (design §6.3).
+accepts_hotwords = false
+
+# Files relative to the archive root; greedy search, never hotwords.
+[model.params]
+model_type = "nemo_transducer"
+encoder = "encoder.int8.onnx"
+decoder = "decoder.int8.onnx"
+joiner = "joiner.int8.onnx"
+tokens = "tokens.txt"
+num_threads = 6
+
+[[model.files]]
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+sha256 = "1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9"
+bytes = 487211443
+archive = true
+path_in_archive_root = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+
+[[model]]
+id = "pyannote-segmentation-3.0"
+display_name = "Pyannote Segmentation 3.0"
+roles = ["diarization"]
+runtime = "onnx"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = false
+
+# Fast clustering with an estimated speaker count (num_clusters = -1); the
+# threshold is a cosine distance. `segmentation` is relative to the archive root
+# (model.int8.onnx is the quantised alternative).
+# 1.0 with TitaNet-Large: the sherpa default (0.5) over-splits speakers heavily;
+# 1.0 was chosen from a local sweep (results not kept in the repo). Over-splits
+# left at 1.0 are repaired by the calibrated `merge` threshold (design §6.4);
+# `bench` re-checks it on the user's own meetings.
+[model.params]
+threshold = 1.0
+num_threads = 6
+min_duration_on = 0.3
+min_duration_off = 0.5
+segmentation = "model.onnx"
+
+[[model.files]]
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
+sha256 = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
+bytes = 6958444
+archive = true
+path_in_archive_root = "sherpa-onnx-pyannote-segmentation-3-0"
+
+[[model]]
+id = "nemo-titanet-large"
+display_name = "NeMo TitaNet Large"
+roles = ["speaker_embedding"]
+runtime = "onnx"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "CC-BY-4.0"
+license_verified = true
+accepts_hotwords = false
+
+[model.params]
+num_threads = 6
+# The exported convolution mask has 12288 frames; longer input throws across
+# the native C API. A signed-worker synthetic probe passes at 120 s and aborts
+# at 180 s. Callers subdivide ranges; this is not an identity threshold.
+max_input_s = 120.0
+
+[[model.files]]
+# "recongition" is the upstream release tag's spelling.
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_large.onnx"
+sha256 = "d51abcf31717ef28162f26acb9d44dd4127c3d44c9b8624f699f3425daca8e77"
+bytes = 101405493
+archive = false
+
+[[model]]
+id = "nemo-titanet-small"
+display_name = "NeMo TitaNet Small"
+roles = ["speaker_embedding"]
+runtime = "onnx"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+# The NGC model card names the NeMo toolkit licence; not confirmed for these weights.
+license = "NeMo toolkit licence (unconfirmed)"
+license_verified = false
+accepts_hotwords = false
+
+[model.params]
+num_threads = 6
+# Same NeMo family as the large model, so a fixed-size mask may cap input
+# length too, but its capacity is unmeasured: no max_input_s is guessed here.
+# Measure it with long synthetic input before relying on it for long turns.
+
+[[model.files]]
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx"
+sha256 = "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e"
+bytes = 40257283
+archive = false
+
+[[model]]
+id = "whisper-large-v3-turbo"
+display_name = "Whisper large-v3 turbo"
+roles = ["asr"]
+runtime = "whisper"
+platforms = ["macos", "windows", "linux"]
+# Whisper's 99 languages; the pipeline passes the language of each span.
+languages = ["*"]
+# whisper.cpp ggml conversion of OpenAI's MIT-licensed weights.
+license = "MIT"
+license_verified = true
+# Hotwords become Whisper's initial prompt (at most 224 tokens).
+accepts_hotwords = true
+# Whisper has no live role: while it is the profile's ASR model the live
+# preview runs this model, installed with the profile.
+live_model = "parakeet-tdt-0.6b-v3"
+
+# q5_0 quantisation; beam search of width `beam_size` (1 = greedy).
+[model.params]
+model = "ggml-large-v3-turbo-q5_0.bin"
+beam_size = 5
+num_threads = 6
+
+[[model.files]]
+url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin"
+sha256 = "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"
+bytes = 574041195
+archive = false
+
+# Example audio for setup's model test (design §4.1 step 3): 11 s of John F.
+# Kennedy's inaugural address, 20 January 1961, as whisper.cpp ships it
+# (16 kHz mono 16-bit WAV). The recording is a U.S. federal government work in
+# the public domain (17 U.S.C. §105; JFK Library, White House Audio Collection
+# JFKWHA-001, copyright status "Public Domain"). Pinned to whisper.cpp's first
+# commit; hashed 2026-11-14. Installed next to the model file.
+[[model.files]]
+url = "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b0a11594aec50892a02cd8d129eee2dfe93a8bb8/samples/jfk.wav"
+sha256 = "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+bytes = 352078
+archive = false
+
+# ---------------------------------------------------------------------------
+# Profiles (design §4.1 step 3, §8.3): the speech models the setup assistant and
+# `setup --profile` offer. Choosing one sets these four roles; the text-embedding
+# model and LLM providers stay as the user set them. `description` names the
+# speech model; the languages shown come from that model's `languages`. Both
+# profiles keep the same speaker-embedding model, so switching never re-embeds
+# the library. `default` matches the built-in config defaults. The live preview
+# model follows the ASR model (itself when it has the `live` role, else its
+# `live_model`) and is installed with the profile.
+
+[[profile]]
+id = "default"
+description = "Parakeet TDT 0.6B v3"
+vad = "silero-vad"
+asr = "parakeet-tdt-0.6b-v3"
+diarization = "pyannote-segmentation-3.0"
+speaker_embedding = "nemo-titanet-large"
+
+[[profile]]
+id = "multilingual"
+description = "Whisper large-v3 turbo"
+vad = "silero-vad"
+asr = "whisper-large-v3-turbo"
+diarization = "pyannote-segmentation-3.0"
+speaker_embedding = "nemo-titanet-large"
+
+# ---------------------------------------------------------------------------
+# LLM providers (design §8.4; plan M2 §9.7). Off until the user enables one and
+# accepts its consent text. Agent CLIs: flags checked against each CLI's
+# `--help` on 2026-11-14 (versions in `version_checked`) and re-checked at
+# runtime. `need`: "required" (the call cannot work without it) and "safety"
+# (tools off, no MCP, no session persistence, user config off) refuse the
+# provider when missing; "optional" is dropped and reported (degraded).
+# Placeholders: {schema} (inline JSON), {schema_file}, {prompt_file} and
+# {output_file} (0600 files in the call's 0700 temp dir), {model}, {timeout_s}.
+# There is no placeholder for the prompt: transcripts never go in argv.
+# `prompt_transport = "unverified"` registers a CLI without a verified way to
+# pass the prompt off argv or to disable tools; such providers are refused.
+# `[provider.models]` lists a provider's models live (`providers models <id>`):
+# `args` run the CLI's own listing command (no placeholders, no meeting data),
+# `format` selects the parser. Formats observed on 2026-11-15; *verify* per
+# vendor release (a failed parse is an error, never a guessed list). Only
+# providers with a verified prompt transport get an entry.
+# `reported_model` says where the CLI reports the model that answered, so a
+# summary records the version an alias or the default resolved to:
+# `{ json_object, rank_by }` takes the keys of that object in the JSON
+# envelope (several: the strictly largest `rank_by` number, else none);
+# `{ stderr_header = { separator, prefix } }` takes the first `prefix` line
+# strictly between the first two `separator` lines of stderr. Observed on
+# 2026-11-15; *verify* per vendor release (nothing found: not reported).
+
+[[provider]]
+id = "claude-cli"
+name = "Claude (Claude Code CLI)"
+vendor = "Anthropic"
+terms_url = "https://www.anthropic.com/legal/consumer-terms"
+runtime = "agent-cli"
+binary = "claude"
+version_checked = "2.1.323"
+prompt_transport = "stdin"
+output = "stdout"
+# `--output-format json` prints one result object; with --json-schema the
+# validated object is in `structured_output`, the plain reply in `result`.
+output_keys = ["structured_output", "result"]
+error_flag_key = "is_error"
+model_args = ["--model", "{model}"]
+# The envelope's `modelUsage` maps each model used to its token counts.
+reported_model = { json_object = "modelUsage", rank_by = "outputTokens" }
+# Not --bare: by its help it ignores the subscription login (API keys only).
+args = [
+  { flag = "-p", need = "required" },
+  { flag = "--output-format", values = ["json"], need = "required" },
+  { flag = "--json-schema", values = ["{schema}"], need = "required" },
+  { flag = "--tools", values = [""], need = "safety" },
+  { flag = "--strict-mcp-config", need = "safety" },
+  { flag = "--no-session-persistence", need = "safety" },
+  { flag = "--safe-mode", need = "safety" },
+  { flag = "--disable-slash-commands", need = "optional" },
+]
+
+# Claude Code has no list command: the aliases its `--model` help names.
+[provider.models]
+args = ["--help"]
+format = "help-aliases"
+
+[[provider]]
+id = "codex-cli"
+name = "ChatGPT (Codex CLI)"
+vendor = "OpenAI"
+terms_url = "https://openai.com/policies/terms-of-use/"
+runtime = "agent-cli"
+binary = "codex"
+version_checked = "0.167.1"
+subcommand = ["exec"]
+help_args = ["exec", "--help"]
+prompt_transport = "stdin"
+output = "file"
+model_args = ["-m", "{model}"]
+# `-`: read the prompt from stdin.
+trailing_args = ["-"]
+# No `--json`: the reply is read from the -o file, and only the plain output
+# prints the session header (with `model: <id>`) on stderr.
+reported_model = { stderr_header = { separator = "--------", prefix = "model: " } }
+args = [
+  { flag = "--output-schema", values = ["{schema_file}"], need = "required" },
+  { flag = "-o", values = ["{output_file}"], need = "required" },
+  { flag = "--skip-git-repo-check", need = "required" },
+  { flag = "--sandbox", values = ["read-only"], need = "safety" },
+  { flag = "--ephemeral", need = "safety" },
+  { flag = "--ignore-user-config", need = "safety" },
+  { flag = "--ignore-rules", need = "safety" },
+]
+
+# Shell and tool features turned off with `--disable <feature>`; only names
+# that `codex features list` reports (and not as removed) are passed.
+[provider.disable_features]
+flag = "--disable"
+list_args = ["features", "list"]
+features = [
+  "shell_tool", "unified_exec", "shell_snapshot", "apps", "plugins", "hooks",
+  "memories", "multi_agent", "browser_use", "browser_use_external",
+  "computer_use", "image_generation", "view_image", "tool_suggest",
+  "sleep_tool", "goals", "skill_mcp_dependency_install", "in_app_browser",
+]
+
+[provider.models]
+args = ["debug", "models"]
+format = "codex-json"
+
+[[provider]]
+id = "grok-cli"
+name = "Grok (Grok CLI)"
+vendor = "xAI"
+terms_url = "https://x.ai/legal/terms-of-service"
+runtime = "agent-cli"
+binary = "grok"
+version_checked = "1.0.77"
+# Never `--single <prompt>`: it puts the transcript in argv.
+prompt_transport = "file"
+output = "stdout"
+output_keys = ["structured_output", "result", "text", "content"]
+model_args = ["-m", "{model}"]
+# The envelope's `modelUsage` maps each model used to its token counts.
+reported_model = { json_object = "modelUsage", rank_by = "outputTokens" }
+args = [
+  { flag = "--prompt-file", values = ["{prompt_file}"], need = "required" },
+  { flag = "--output-format", values = ["json"], need = "required" },
+  { flag = "--json-schema", values = ["{schema}"], need = "required" },
+  { flag = "--tools", values = [""], need = "safety" },
+  { flag = "--disable-web-search", need = "safety" },
+  { flag = "--no-subagents", need = "safety" },
+  { flag = "--no-plan", need = "optional" },
+]
+
+[provider.models]
+args = ["models"]
+format = "marked-lines"
+
+[[provider]]
+id = "agy-cli"
+name = "Gemini (Antigravity CLI)"
+vendor = "Google"
+terms_url = "https://policies.google.com/terms"
+runtime = "agent-cli"
+binary = "agy"
+version_checked = "1.5.8"
+# Its help (1.5.8) shows no way to pass the print-mode prompt off argv and no
+# switch that turns tools off.
+prompt_transport = "unverified"
+output = "stdout"
+output_keys = ["structured_output", "result", "response"]
+model_args = ["--model", "{model}"]
+args = [
+  { flag = "--print", need = "required" },
+  { flag = "--output-format", values = ["json"], need = "required" },
+  { flag = "--json-schema", values = ["{schema}"], need = "required" },
+  { flag = "--sandbox", need = "safety" },
+  { flag = "--disable-slash-commands", need = "safety" },
+  { flag = "--print-timeout", values = ["{timeout_s}s"], need = "optional" },
+]
+
+[[provider]]
+id = "gemini-cli"
+name = "Gemini CLI"
+vendor = "Google"
+terms_url = "https://policies.google.com/terms"
+runtime = "agent-cli"
+binary = "gemini"
+# Not installed when the registry was written; flags unchecked.
+prompt_transport = "unverified"
+output = "stdout"
+output_keys = ["response"]
+model_args = ["-m", "{model}"]
+args = [
+  { flag = "--output-format", values = ["json"], need = "required" },
+]
+
+[[provider]]
+id = "opencode-cli"
+name = "opencode"
+vendor = "the model provider configured in opencode"
+terms_url = "https://opencode.ai"
+runtime = "agent-cli"
+binary = "opencode"
+version_checked = "2.0.11"
+subcommand = ["run"]
+help_args = ["run", "--help"]
+# `run` takes the message in argv (`--file` only attaches a file) and has no
+# switch that turns tools off.
+prompt_transport = "unverified"
+output = "stdout"
+model_args = ["-m", "{model}"]
+args = [
+  { flag = "--format", values = ["json"], need = "required" },
+]
+
+# OpenAI-compatible server (Ollama, LM Studio, llama.cpp server, vLLM, paid
+# APIs). `base_url` (including `/v1`) and `model` come from the provider's
+# config; the API key, if any, from the SecretStore under
+# `provider/openai-http/api_key`. Plain http only for loopback hosts.
+[[provider]]
+id = "openai-http"
+name = "OpenAI-compatible API"
+vendor = "the server at the configured base URL"
+runtime = "openai-compatible-http"
+endpoint = "chat/completions"
+
+[provider.models]
+format = "openai-models"
+
+# Remote text embeddings (plan M2 §9.2): `/v1/embeddings` of an
+# OpenAI-compatible server, with the same enablement and consent as an LLM
+# provider. `base_url` (including `/v1`) and the embedding `model` come from
+# this provider's config; the API key, if any, from the SecretStore under
+# `provider/openai-embeddings/api_key`. Selected with
+# `profile.text_embedding = "openai-embeddings"`.
+[[provider]]
+id = "openai-embeddings"
+name = "OpenAI-compatible embeddings API"
+vendor = "the server at the configured base URL"
+runtime = "openai-compatible-http"
+purpose = "text_embedding"
+endpoint = "embeddings"
+
+# Static multilingual text embeddings for semantic search (model2vec, 256
+# dimensions, 101 languages incl. Portuguese). Loaded only from these pinned
+# files, never from the hub. Files at HF revision 73908c34…, hashed 2026-11-14.
+[[model]]
+id = "potion-multilingual-128m"
+display_name = "Potion Multilingual 128M"
+roles = ["text_embedding"]
+runtime = "model2vec"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = false
+
+# Tokens per embedded window (windows are at most 60 s of one speaker).
+[model.params]
+max_length = 512
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-multilingual-128M/resolve/73908c3438cf03b6a01bcb9611d62b23d0726f08/model.safetensors"
+sha256 = "14b5eb39cb4ce5666da8ad1f3dc6be4346e9b2d601c073302fa0a31bf7943397"
+bytes = 512361560
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-multilingual-128M/resolve/73908c3438cf03b6a01bcb9611d62b23d0726f08/tokenizer.json"
+sha256 = "19f1909063da3cfe3bd83a782381f040dccea475f4816de11116444a73e1b6a1"
+bytes = 18616131
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-multilingual-128M/resolve/73908c3438cf03b6a01bcb9611d62b23d0726f08/config.json"
+sha256 = "595e4cab2093732efd5dbe084fd5c1826b5eea693b73b4c1fd971672867d2e54"
+bytes = 271
+archive = false

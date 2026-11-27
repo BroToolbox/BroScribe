@@ -1,0 +1,59 @@
+# Candidate structural anchors only. Owner must verify these in a synthetic call.
+id = "teams"
+# macOS bundle ids, Linux PipeWire application ids / binary names and Windows
+# executable file names (detect.toml identities), matched case-insensitively.
+bundle_ids = [
+    "com.microsoft.teams2", "com.microsoft.teams",
+    "teams", "teams-for-linux", "com.github.IsmaelMartinez.teams_for_linux",
+    "teams.exe", "ms-teams.exe",
+]
+verified = false
+structural_verified = false
+# Chromium web content (the observed `hangup-button` is a DOM id):
+# AXManualAccessibility is enabled while reading if the app reports it off.
+manual_accessibility = true
+
+[self_labels]
+en = ["You", "Me"]
+pt = ["Você", "Eu"]
+es = ["Tú", "Yo"]
+fr = ["Vous", "Moi"]
+de = ["Du", "Ich"]
+
+[roster]
+items = 'AXGroup[identifier="roster"] > AXGroup[identifier^="participant-"]'
+[roster.name]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[roster.email]
+selector = 'AXStaticText[identifier="email"]'
+attribute = "value"
+
+[captions]
+items = 'AXGroup[identifier="captions"] > AXGroup[identifier^="caption-"]'
+[captions.id]
+attribute = "identifier"
+[captions.speaker]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[captions.text]
+selector = 'AXStaticText'
+attribute = "value"
+index = 1
+
+# Call state (plan H). The Leave control (AXButton, DOM id `hangup-button`,
+# description "Leave") was observed read-only in a real Teams call on macOS;
+# the identifier is matched, not the localized label. No post-call surface was
+# observed, so none is defined. Instead the end is the window transition: the
+# top-level windows that showed the Leave control must all be verified
+# destroyed by the platform (the element itself reports it no longer exists;
+# hidden, minimized, other-Space, unanswered or merely missing windows never
+# count) in a complete snapshot with no Leave control anywhere. A meeting
+# shown in a window that outlives the call (e.g. the main window) yields no
+# end, and microphone release stays the fallback, vetoed while the call shows.
+# This transition is structural and not yet owner-verified in a live call.
+[call]
+active = ['AXButton[identifier="hangup-button"]']
+end_on_window_closed = true

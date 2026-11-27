@@ -1,0 +1,440 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: "1.100.0"
+  RUSTUP_AUTO_INSTALL: "0"
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: never
+  PYTHONUTF8: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            sherpa: osx-arm64
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            sherpa: linux-x64
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            sherpa: linux-aarch64
+          - platform: windows-x64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            sherpa: win-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    env:
+      RELEASE_TARGET: ${{ matrix.target }}
+      SHERPA_TARGET: ${{ matrix.sherpa }}
+      BUILD_NUMBER_BASE: ${{ vars.BROSCRIBE_BUILD_NUMBER_BASE || '300000000' }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - name: Check out the exact release commit
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          git init --quiet .
+          git config core.autocrlf false
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+          git log -1 --format='checked out %H'
+
+      - name: Check release identity
+        run: |
+          set -euo pipefail
+          python_runner=python3
+          if [[ "$RUNNER_OS" == Windows ]]; then python_runner=python; fi
+          "$python_runner" - <<'PY' >> "$GITHUB_ENV"
+          import os
+          from pathlib import Path
+          import re
+          import tomllib
+
+          version = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+              raise SystemExit("Release version must be MAJOR.MINOR.PATCH.")
+          if os.environ["GITHUB_REF_TYPE"] == "tag" and os.environ["GITHUB_REF_NAME"] != "v" + version:
+              raise SystemExit("Release tag must match the workspace version.")
+          build = int(os.environ["BUILD_NUMBER_BASE"]) + int(os.environ["GITHUB_RUN_NUMBER"])
+          if not 1 <= build <= 999999999:
+              raise SystemExit("Build number must be between 1 and 999999999.")
+          print(f"BROSCRIBE_BUILD_NUMBER={build}")
+          print(f"RELEASE_VERSION={version}")
+          PY
+
+      - name: Native Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpipewire-0.3-dev libspa-0.2-dev libasound2-dev libclang-dev clang pkg-config cmake \
+            libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev libwayland-dev \
+            libfontconfig-dev libfreetype-dev libvulkan-dev libzstd-dev libssl-dev bzip2 ca-certificates ffmpeg
+
+      - name: Native Windows prerequisites
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual Studio C++ tools are required.' }
+          $env:BROSCRIBE_VSDEVCMD = Join-Path $vs 'Common7/Tools/VsDevCmd.bat'
+          Push-Location $env:RUNNER_TEMP
+          try {
+            @('call "%BROSCRIBE_VSDEVCMD%" -no_logo -host_arch=x64 -arch=x64 >nul',
+              'if errorlevel 1 exit /b 1', 'set') | Set-Content -Encoding ascii broscribe-msvc.cmd
+            $variables = & cmd.exe /d /c broscribe-msvc.cmd
+            if ($LASTEXITCODE -ne 0) { throw 'Visual Studio environment setup failed.' }
+          } finally {
+            Remove-Item -Force broscribe-msvc.cmd -ErrorAction SilentlyContinue
+            Pop-Location
+          }
+          $allowed = '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|VCINSTALLDIR|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion|WindowsSdkBinPath|WindowsSdkVerBinPath|UniversalCRTSdkDir|UCRTVersion)='
+          $variables | Where-Object { $_ -match $allowed } | Add-Content $env:GITHUB_ENV
+          $vc = ($variables | Where-Object { $_ -match '^VCToolsInstallDir=' }) -replace '^VCToolsInstallDir=', ''
+          if (!$vc) { throw 'MSVC tool path is missing.' }
+          Join-Path $vc 'bin/Hostx64/x64' | Add-Content $env:GITHUB_PATH
+          "BROSCRIBE_MSVC_BIN=$(Join-Path $vc 'bin/Hostx64/x64')" | Add-Content $env:GITHUB_ENV
+          "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'bs')" | Add-Content $env:GITHUB_ENV
+          'CARGO_BUILD_JOBS=1' | Add-Content $env:GITHUB_ENV
+
+      - name: Install the pinned native toolchain and verify inputs
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          [[ "$channel" == "$RUST_TOOLCHAIN" ]]
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustc --version | grep -F "rustc ${RUST_TOOLCHAIN} "
+          rustc -vV | grep -Fx "host: $RELEASE_TARGET"
+          cargo --version | grep -F "cargo ${RUST_TOOLCHAIN} "
+          command -v cmake
+          third_party/sherpa-onnx/fetch.sh --target "$SHERPA_TARGET"
+
+      - name: Supply-chain and script gates
+        if: matrix.platform == 'macos-arm64'
+        run: |
+          set -euo pipefail
+          python3 scripts/check-publish-age.py Cargo.lock
+          python3 -m unittest discover -s scripts/tests
+
+      - name: Format, lint and test the native workspace
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            export PATH="$(cygpath -u "$BROSCRIBE_MSVC_BIN"):$PATH"
+            command -v cl.exe
+          fi
+          cargo fmt --all --check
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            features="$(cargo tree --locked --target "$RELEASE_TARGET" -e features)"
+            metal="$(grep -i 'feature "metal"' <<<"$features" | grep -Ev 'wgpu(-core)? feature "metal"' || :)"
+            [[ -z "$metal" ]] || { printf '%s\n' "$metal" >&2; exit 1; }
+          fi
+          scripts/build-target.sh "$RELEASE_TARGET" clippy --locked --workspace --all-targets -- -D warnings
+          scripts/build-target.sh "$RELEASE_TARGET" test --locked --workspace
+          git diff --exit-code -- Cargo.lock
+
+      - name: Build unsigned macOS bundle
+        if: runner.os == 'macOS'
+        run: scripts/bundle-macos.sh --build-unsigned
+
+      - name: Sign, optionally notarize, and verify macOS
+        id: macos
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 022
+          stem="BroScribe-$RELEASE_VERSION-$BROSCRIBE_BUILD_NUMBER-macos-arm64"
+          if [[ -z "$MACOS_CERTIFICATE_P12$MACOS_CERTIFICATE_PASSWORD$MACOS_SIGN_IDENTITY$NOTARY_API_KEY_P8$NOTARY_KEY_ID$NOTARY_ISSUER_ID" ]]; then
+            BROSCRIBE_SIGN_IDENTITY=- scripts/sign-macos.sh "$CARGO_TARGET_DIR/BroScribe.app"
+            python3 scripts/package-macos-preview.py
+            stem="$stem-adhoc"
+            echo 'status=adhoc' >> "$GITHUB_OUTPUT"
+          else
+            if [[ -z "$MACOS_CERTIFICATE_P12" || -z "$MACOS_CERTIFICATE_PASSWORD" || -z "$MACOS_SIGN_IDENTITY" ||
+                  -z "$NOTARY_API_KEY_P8" || -z "$NOTARY_KEY_ID" || -z "$NOTARY_ISSUER_ID" ]]; then
+              echo 'Incomplete macOS signing and notarization credentials.' >&2
+              exit 1
+            fi
+            [[ "$MACOS_SIGN_IDENTITY" == 'Developer ID Application:'* ]]
+            umask 077
+            work="$(mktemp -d "$RUNNER_TEMP/broscribe-sign.XXXXXX")"
+            keychain="$work/release.keychain-db"
+            old_list=()
+            while IFS= read -r item; do old_list+=("$item"); done < <(security list-keychains -d user | sed -E 's/^ *"(.+)"$/\1/')
+            cleanup() {
+              security list-keychains -d user -s "${old_list[@]}" >/dev/null || :
+              security delete-keychain "$keychain" >/dev/null 2>&1 || :
+              rm -rf -- "$work"
+            }
+            trap cleanup EXIT
+            python3 - "$work" <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          import sys
+          work = Path(sys.argv[1])
+          for filename, key in (("release.p12", "MACOS_CERTIFICATE_P12"), ("notary.p8", "NOTARY_API_KEY_P8")):
+              (work / filename).write_bytes(base64.b64decode("".join(os.environ[key].split()), validate=True))
+          PY
+            password="$(openssl rand -hex 32)"
+            echo "::add-mask::$password"
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            security import "$work/release.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign >/dev/null
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+            security list-keychains -d user -s "$keychain" "${old_list[@]}"
+            xcrun notarytool store-credentials BroScribeRelease --keychain "$keychain" \
+              --key "$work/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" >/dev/null
+            rm -f -- "$work/release.p12" "$work/notary.p8"
+            unset MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD NOTARY_API_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER_ID password
+            umask 022
+            BROSCRIBE_SIGN_IDENTITY="$MACOS_SIGN_IDENTITY" scripts/sign-macos.sh "$CARGO_TARGET_DIR/BroScribe.app"
+            BROSCRIBE_NOTARY_KEYCHAIN="$keychain" scripts/notarize-macos.sh BroScribeRelease
+            python3 scripts/verify-macos-artifact.py "$CARGO_TARGET_DIR/dist/$stem.zip" \
+              --provenance "$CARGO_TARGET_DIR/dist/$stem.provenance.json" \
+              --require-complete-licences --codesign --require-stapled
+            echo 'status=notarized' >> "$GITHUB_OUTPUT"
+          fi
+          echo "stem=$stem" >> "$GITHUB_OUTPUT"
+
+      - name: Build, package and verify Linux
+        id: linux
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p test_desktop_artifacts.py
+          python3 scripts/package-desktop.py "$RELEASE_TARGET"
+          stem="BroScribe-$RELEASE_VERSION-$BROSCRIBE_BUILD_NUMBER-linux-$(uname -m)"
+          python3 scripts/verify-desktop-artifact.py "$CARGO_TARGET_DIR/dist/$stem.tar.gz"
+          echo "stem=$stem" >> "$GITHUB_OUTPUT"
+
+      - name: Build Windows MSVC release executables
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          export PATH="$(cygpath -u "$BROSCRIBE_MSVC_BIN"):$PATH"
+          python scripts/package-desktop.py "$RELEASE_TARGET" --build-only
+
+      - name: Optionally sign Windows executables
+        id: windows_sign
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_SERVER: ${{ vars.WINDOWS_TIMESTAMP_SERVER }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!$env:WINDOWS_CERTIFICATE_PFX -and !$env:WINDOWS_CERTIFICATE_PASSWORD) {
+            'status=unsigned' | Add-Content $env:GITHUB_OUTPUT
+            exit 0
+          }
+          if (!$env:WINDOWS_CERTIFICATE_PFX -or !$env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw 'Incomplete Windows Authenticode credentials.'
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "broscribe-${env:GITHUB_RUN_ID}.pfx"
+          $certificate = $null
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX))
+            $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $certificate = Import-PfxCertificate -FilePath $pfx -Password $password -CertStoreLocation Cert:/CurrentUser/My |
+              Where-Object HasPrivateKey | Select-Object -First 1
+            if (!$certificate) { throw 'The Authenticode private key is missing.' }
+            $release = Join-Path $env:CARGO_TARGET_DIR "$env:RELEASE_TARGET/release"
+            $timestamp = @{}
+            $status = 'authenticode-untimestamped'
+            if ($env:WINDOWS_TIMESTAMP_SERVER) {
+              $timestamp.TimestampServer = $env:WINDOWS_TIMESTAMP_SERVER
+              $status = 'authenticode-timestamped'
+            }
+            foreach ($name in @('broscribe-app', 'broscribe', 'broscribed', 'broscribe-worker', 'broscribe-update-runner')) {
+              $path = Join-Path $release "$name.exe"
+              $signed = Set-AuthenticodeSignature -FilePath $path -Certificate $certificate -HashAlgorithm SHA256 @timestamp
+              if ($signed.Status -ne 'Valid' -or ($timestamp.Count -and !$signed.TimeStamperCertificate)) {
+                throw "Authenticode signature or requested timestamp failed verification for $name."
+              }
+            }
+            "status=$status" | Add-Content $env:GITHUB_OUTPUT
+          } finally {
+            if ($certificate) {
+              Remove-Item -LiteralPath "Cert:/CurrentUser/My/$($certificate.Thumbprint)" -DeleteKey
+            }
+            Remove-Item -Force -LiteralPath $pfx -ErrorAction SilentlyContinue
+          }
+
+      - name: Package and verify Windows
+        id: windows
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          export PATH="$(cygpath -u "$BROSCRIBE_MSVC_BIN"):$PATH"
+          python scripts/package-desktop.py "$RELEASE_TARGET" --package-only
+          stem="BroScribe-$RELEASE_VERSION-$BROSCRIBE_BUILD_NUMBER-windows-x64"
+          python scripts/verify-desktop-artifact.py "$CARGO_TARGET_DIR/dist/$stem.zip"
+          echo "stem=$stem" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified artifact, checksum and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.platform }}${{ steps.macos.outputs.status && format('-{0}', steps.macos.outputs.status) || '' }}${{ steps.windows_sign.outputs.status && format('-{0}', steps.windows_sign.outputs.status) || '' }}
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/${{ steps.macos.outputs.stem || steps.linux.outputs.stem || steps.windows.outputs.stem }}.*
+          if-no-files-found: error
+          compression-level: 0
+
+  draft:
+    name: Create draft GitHub Release
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: build
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact release commit
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          git init --quiet .
+          git config core.autocrlf false
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+          git log -1 --format='checked out %H'
+
+      - name: Download verified packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: artifacts
+
+      - name: Build the combined update manifest
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(artifacts/*/*)
+          [[ "${#assets[@]}" == 12 ]] || { echo 'Expected four packages with two sidecars each.' >&2; exit 1; }
+          python3 scripts/release-metadata.py manifest --packages artifacts --tag "$GITHUB_REF_NAME" \
+            --out "$RUNNER_TEMP/broscribe-manifest.json"
+          macos_zip=(artifacts/macos-arm64-*/*.zip)
+          [[ "${#macos_zip[@]}" == 1 ]]
+          # Use the CLI from the already verified native build.
+          unzip -p "${macos_zip[0]}" BroScribe.app/Contents/MacOS/broscribe > "$RUNNER_TEMP/broscribe-release-cli"
+          chmod 700 "$RUNNER_TEMP/broscribe-release-cli"
+
+      - name: Sign and verify the update envelope
+        id: update
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$UPDATE_SIGNING_KEY" ]]; then
+            echo 'UPDATE_SIGNING_KEY is absent. Creating the draft without an update envelope.'
+            echo 'signed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$GITHUB_REPOSITORY" == BroToolbox/BroScribe ]]
+          umask 077
+          work="$(mktemp -d "$RUNNER_TEMP/broscribe-update.XXXXXX")"
+          trap 'rm -rf -- "$work"' EXIT
+          python3 - "$work/seed" <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+          import sys
+
+          try:
+              key = "".join(os.environ["UPDATE_SIGNING_KEY"].split())
+              seed = base64.b64decode(key, validate=True)
+          except (binascii.Error, ValueError):
+              raise SystemExit("UPDATE_SIGNING_KEY must be a base64 Ed25519 seed.") from None
+          if len(seed) != 32:
+              raise SystemExit("UPDATE_SIGNING_KEY must decode to 32 bytes.")
+          with Path(sys.argv[1]).open("xb") as output:
+              output.write(seed)
+          PY
+          unset UPDATE_SIGNING_KEY
+          export BROSCRIBE_DATA_DIR="$work/profile"
+          cli="$RUNNER_TEMP/broscribe-release-cli"
+          "$cli" update sign-manifest --key-file "$work/seed" --manifest-stdin \
+            < "$RUNNER_TEMP/broscribe-manifest.json" > "$work/envelope"
+          rm -f -- "$work/seed"
+          "$cli" update verify-manifest --envelope-stdin < "$work/envelope"
+          mv -- "$work/envelope" "$RUNNER_TEMP/broscribe-update.json"
+          echo 'signed=true' >> "$GITHUB_OUTPUT"
+
+      - name: Stage draft for owner review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UPDATE_SIGNED: ${{ steps.update.outputs.signed }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(artifacts/*/*)
+          expected=12
+          case "$UPDATE_SIGNED" in
+            true) assets+=("$RUNNER_TEMP/broscribe-update.json"); expected=13 ;;
+            false) ;;
+            *) echo 'Missing update signing outcome.' >&2; exit 1 ;;
+          esac
+          [[ "${#assets[@]}" == "$expected" ]] || { echo "Expected $expected release assets." >&2; exit 1; }
+          macos=(artifacts/macos-arm64-*)
+          windows=(artifacts/windows-x64-*)
+          [[ ${#macos[@]} == 1 && ${#windows[@]} == 1 ]]
+          release_notes="$RUNNER_TEMP/broscribe-release-notes.md"
+          {
+            printf 'macOS package: %s\nWindows package: %s\n\n' "${macos[0]#artifacts/macos-arm64-}" "${windows[0]#artifacts/windows-x64-}"
+            printf 'Complete real-desktop smoke runs and confirm redistribution terms before publication.\n'
+            printf 'An ad-hoc macOS ZIP is a preview and needs a notarized replacement before distribution.\n'
+          } > "$release_notes"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "BroScribe $GITHUB_REF_NAME" \
+            --notes-file "$release_notes" "${assets[@]}"

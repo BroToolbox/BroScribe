@@ -1,0 +1,54 @@
+# Candidate structural anchors only. Owner must verify these in a synthetic call.
+id = "zoom"
+# macOS bundle ids, Linux PipeWire application ids / binary names and Windows
+# executable file names (detect.toml identities), matched case-insensitively.
+bundle_ids = ["us.zoom.xos", "zoom", "us.zoom.Zoom", "zoom.exe"]
+verified = false
+structural_verified = false
+manual_accessibility = false
+
+[self_labels]
+en = ["You", "Me"]
+pt = ["Você", "Eu"]
+es = ["Tú", "Yo"]
+fr = ["Vous", "Moi"]
+de = ["Du", "Ich"]
+
+[roster]
+items = 'AXOutline[identifier="participants"] AXRow'
+[roster.name]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[roster.email]
+selector = 'AXStaticText[identifier="email"]'
+attribute = "value"
+
+[captions]
+items = 'AXGroup[identifier="closed-caption"] > AXGroup'
+[captions.id]
+attribute = "identifier"
+[captions.speaker]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[captions.text]
+selector = 'AXStaticText'
+attribute = "value"
+index = 1
+
+[active_speaker]
+items = 'AXStaticText[value^="Talking:"]'
+[active_speaker.name]
+attribute = "value"
+strip_prefix = "Talking:"
+
+# Call state (plan H): in-call only, candidates from the meeting window's
+# public Leave/End controls (English), to verify in a synthetic call. No
+# post-call surface is defined (Zoom returns to its home window), so Zoom never
+# reports an explicit end; microphone release remains the fallback.
+[call]
+active = [
+    'AXWindow[title="Zoom Meeting"] AXButton[title="Leave"]',
+    'AXWindow[title="Zoom Meeting"] AXButton[title="End"]',
+]

@@ -1,0 +1,45 @@
+[package]
+name = "broscribed"
+description = "The BroScribe daemon: capture sessions, job scheduling, live preview supervision, retention schedule and the IPC server"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "broscribed"
+path = "src/main.rs"
+
+# No ML or UI crates here (plan §12.1): inference runs in `broscribe-worker`.
+[dependencies]
+broscribe-core.workspace = true
+broscribe-ipc.workspace = true
+broscribe-platform.workspace = true
+broscribe-platform-native.workspace = true
+broscribe-capture.workspace = true
+broscribe-detect.workspace = true
+broscribe-readers.workspace = true
+broscribe-dsp.workspace = true
+broscribe-integrations.workspace = true
+tempfile.workspace = true
+clap.workspace = true
+chrono.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "process"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+filetime.workspace = true
+broscribe-pipeline.workspace = true
+broscribe-models.workspace = true
+
+[lints]
+workspace = true

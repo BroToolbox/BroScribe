@@ -1,0 +1,99 @@
+<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="linearGradient1" x1="0" y1="0" x2="0" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(136 0 0 122 317 692)">
+            <stop offset="0" stop-color="#36313e"/>
+            <stop offset="1" stop-color="#181824"/>
+        </linearGradient>
+        <linearGradient id="shadow" x1="0" y1="0" x2="0" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(136 0 0 122 550 692)">
+            <stop offset="0" stop-color="#36313e"/>
+            <stop offset="1" stop-color="#181824"/>
+        </linearGradient>
+        <linearGradient id="shell-fill" x1="0.1" y1="0.1" x2="0.84" y2="0.95" gradientUnits="userSpaceOnUse" gradientTransform="matrix(643.17505 0 0 616.15906 178.87906 173.84094)">
+            <stop offset="0" stop-color="#fffaf7"/>
+            <stop offset="0.53" stop-color="#f7f0ed"/>
+            <stop offset="1" stop-color="#decfd7"/>
+        </linearGradient>
+        <linearGradient id="linearGradient2" x1="0" y1="0" x2="1" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(574 0 0 277 216 139)">
+            <stop offset="0" stop-color="#c49bff"/>
+            <stop offset="0.55" stop-color="#8e56e9"/>
+            <stop offset="1" stop-color="#592aab"/>
+        </linearGradient>
+        <linearGradient id="linearGradient3" x1="0" y1="0" x2="1" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(160 0 0 281 119 372)">
+            <stop offset="0" stop-color="#c49bff"/>
+            <stop offset="0.55" stop-color="#8e56e9"/>
+            <stop offset="1" stop-color="#592aab"/>
+        </linearGradient>
+        <linearGradient id="linearGradient4" x1="0" y1="0" x2="1" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(160 0 0 281 746 372)">
+            <stop offset="0" stop-color="#c49bff"/>
+            <stop offset="0.55" stop-color="#8e56e9"/>
+            <stop offset="1" stop-color="#592aab"/>
+        </linearGradient>
+        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(268 0 0 76 367 153)">
+            <stop offset="0" stop-color="#c49bff"/>
+            <stop offset="0.55" stop-color="#8e56e9"/>
+            <stop offset="1" stop-color="#592aab"/>
+        </linearGradient>
+        <radialGradient id="visor-fill" cx="0.51" cy="0.3" r="0.9" fx="0.51" fy="0.3" gradientUnits="userSpaceOnUse" gradientTransform="matrix(467 0 0 352 268 346)">
+            <stop offset="0" stop-color="#343041"/>
+            <stop offset="0.72" stop-color="#211f30"/>
+            <stop offset="1" stop-color="#151620"/>
+        </radialGradient>
+        <filter id="soft" x="140" y="764" width="720" height="96" filterUnits="userSpaceOnUse">
+            <feGaussianBlur color-interpolation-filters="linearRGB" in="SourceGraphic" stdDeviation="15 15" result="result1"/>
+        </filter>
+    </defs>
+    <g transform="matrix(1.024 0 0 1.024 0 0)">
+        <g id="ground-shadow">
+            <g filter="url(#soft)" opacity="0.2">
+                <path fill="#16111f" stroke="none" d="M 800 812 C 800 834.0913 665.6854 852 500 852 C 334.31458 852 200 834.0913 200 812 C 200 789.9086 334.31458 772 500 772 C 665.6854 772 800 789.9086 800 812 Z"/>
+            </g>
+        </g>
+        <g id="feet">
+            <path fill="url(#linearGradient1)" stroke="none" d="M 453 753 C 453 786.6894 422.55536 814 385 814 C 347.44464 814 317 786.6894 317 753 C 317 719.3106 347.44464 692 385 692 C 422.55536 692 453 719.3106 453 753 Z"/>
+            <path fill="url(#shadow)" stroke="none" d="M 686 753 C 686 786.6894 655.55536 814 618 814 C 580.44464 814 550 786.6894 550 753 C 550 719.3106 580.44464 692 618 692 C 655.55536 692 686 719.3106 686 753 Z"/>
+        </g>
+        <g id="shell">
+            <path fill="url(#shell-fill)" stroke="none" d="M 503 174 C 703 169 825 282 822 496 C 820 699 726 787 500 790 C 270 788 175 694 179 487 C 182 281 307 172 503 174 Z"/>
+            <g opacity="0.29">
+                <path fill="none" stroke="#ffffff" stroke-width="19" stroke-linecap="round" d="M 281 339 C 333 245 430 225 504 221"/>
+            </g>
+        </g>
+        <g id="headphones">
+            <path fill="none" stroke="#342441" stroke-width="84" stroke-linecap="round" d="M 216 420 C 210 157 344 109 501 109 C 673 109 799 180 790 421"/>
+            <path fill="none" stroke="url(#linearGradient2)" stroke-width="53" stroke-linecap="round" d="M 216 416 C 221 182 347 139 501 139 C 656 139 778 198 790 416"/>
+        </g>
+        <g id="earcups">
+            <path fill="url(#linearGradient3)" stroke="none" d="M 199 372 L 199 372 C 243.18277 372 279 407.81723 279 452 L 279 573 C 279 617.1828 243.18277 653 199 653 L 199 653 C 154.81721 653 119 617.1828 119 573 L 119 452 C 119 407.81723 154.81721 372 199 372 Z"/>
+            <path fill="url(#linearGradient4)" stroke="none" d="M 826 372 L 826 372 C 870.1828 372 906 407.81723 906 452 L 906 573 C 906 617.1828 870.1828 653 826 653 L 826 653 C 781.8172 653 746 617.1828 746 573 L 746 452 C 746 407.81723 781.8172 372 826 372 Z"/>
+            <path fill="#3a255a" stroke="none" d="M 257 512 C 257 573.8559 231.48022 624 200 624 C 168.51978 624 143 573.8559 143 512 C 143 450.1441 168.51978 400 200 400 C 231.48022 400 257 450.1441 257 512 Z"/>
+            <path fill="#3a255a" stroke="none" d="M 875 512 C 875 573.8559 849.4802 624 818 624 C 786.5197 624 761 573.8559 761 512 C 761 450.1441 786.5197 400 818 400 C 849.4802 400 875 450.1441 875 512 Z"/>
+            <g>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 164 512 L 164 512"/>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 187 476 L 187 551"/>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 210 454 L 210 571"/>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 234 482 L 234 544"/>
+            </g>
+            <g>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 854 512 L 854 512"/>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 831 476 L 831 551"/>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 808 454 L 808 571"/>
+                <path fill="#000000" stroke="#d3b1ff" stroke-width="15" stroke-linecap="round" d="M 784 482 L 784 544"/>
+            </g>
+        </g>
+        <g id="crown">
+            <path fill="url(#accent)" stroke="none" d="M 405 153 L 597 153 C 617.9868 153 635 170.01318 635 191 L 635 191 C 635 211.98682 617.9868 229 597 229 L 405 229 C 384.01318 229 367 211.98682 367 191 L 367 191 C 367 170.01318 384.01318 153 405 153 Z"/>
+        </g>
+        <g id="visor">
+            <path fill="#fff9fc" stroke="none" d="M 412 332 L 590 332 C 677.8133 332 749 403.18674 749 491 L 749 556 C 749 643.8133 677.8133 715 590 715 L 412 715 C 324.18674 715 253 643.8133 253 556 L 253 491 C 253 403.18674 324.18674 332 412 332 Z"/>
+            <path fill="url(#visor-fill)" stroke="none" d="M 411 346 L 592 346 C 670.97675 346 735 410.0233 735 489 L 735 555 C 735 633.97675 670.97675 698 592 698 L 411 698 C 332.0233 698 268 633.97675 268 555 L 268 489 C 268 410.0233 332.0233 346 411 346 Z"/>
+            <g opacity="0.16">
+                <path fill="none" stroke="#97909e" stroke-width="16" stroke-linecap="round" d="M 334 387 Q 492 330 652 392"/>
+            </g>
+        </g>
+        <g id="face">
+            <path fill="#fcfbff" stroke="none" d="M 434.5 434 L 434.5 434 C 443.6127 434 451 441.3873 451 450.5 L 451 512.5 C 451 521.6127 443.6127 529 434.5 529 L 434.5 529 C 425.3873 529 418 521.6127 418 512.5 L 418 450.5 C 418 441.3873 425.3873 434 434.5 434 Z"/>
+            <path fill="#fcfbff" stroke="none" d="M 562.5 434 L 562.5 434 C 571.6127 434 579 441.3873 579 450.5 L 579 512.5 C 579 521.6127 571.6127 529 562.5 529 L 562.5 529 C 553.3873 529 546 521.6127 546 512.5 L 546 450.5 C 546 441.3873 553.3873 434 562.5 434 Z"/>
+            <path fill="none" stroke="#b587ff" stroke-width="19" stroke-linecap="round" d="M 429 617 Q 499 672 572 617"/>
+        </g>
+    </g>
+</svg>

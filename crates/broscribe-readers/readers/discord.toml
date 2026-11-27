@@ -1,0 +1,39 @@
+# Candidate structural anchors only. Owner must verify these in a synthetic call.
+id = "discord"
+# macOS bundle ids, Linux PipeWire application ids / binary names and Windows
+# executable file names (detect.toml identities), matched case-insensitively.
+bundle_ids = ["com.hnc.Discord", "discord", "com.discordapp.Discord", "discord.exe"]
+verified = false
+structural_verified = false
+# Electron: AXManualAccessibility is enabled while reading if the app reports it off.
+manual_accessibility = true
+
+[self_labels]
+en = ["You", "Me"]
+pt = ["Você", "Eu"]
+es = ["Tú", "Yo"]
+fr = ["Vous", "Moi"]
+de = ["Du", "Ich"]
+
+[roster]
+items = 'AXGroup[class="voiceParticipants"] > AXGroup'
+[roster.name]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[roster.email]
+selector = 'AXStaticText[identifier="email"]'
+attribute = "value"
+
+[captions]
+items = 'AXGroup[identifier="captions"] > AXGroup'
+[captions.id]
+attribute = "identifier"
+[captions.speaker]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[captions.text]
+selector = 'AXStaticText'
+attribute = "value"
+index = 1

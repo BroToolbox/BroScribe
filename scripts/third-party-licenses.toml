@@ -1,0 +1,371 @@
+# Licence policy for scripts/third-party-notices.py: which licences may ship in
+# a BroScribe binary (Apache-2.0, AGENTS.md) and reviewed corrections for
+# crates whose metadata alone cannot be trusted. Any licence not listed here
+# fails the bundle; a missing licence text makes the inventory incomplete,
+# which local builds may carry but distribution (notarization) refuses.
+
+# SPDX identifiers that may be distributed in a BroScribe binary. An SPDX
+# expression passes when one of its OR alternatives uses allowed licences only.
+allowed = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "bzip2-1.0.6",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "NCSA",
+  # SIL Open Font License 1.1, for the fonts the app bundles (Inter, Manrope;
+  # crates/broscribe-app/assets/ASSET_LICENSES.toml). Compatible with an
+  # Apache-2.0 app: the fonts ship as they are, with their copyright notices
+  # and licence text, and are never sold by themselves (decision 2026-11-21).
+  "OFL-1.1",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  # The Unicode, Inc. copyright and permission notice (1991-2007) that
+  # utf8proc's LICENSE.md reproduces for its Unicode data; permissive, met by
+  # shipping the notice unmodified (third_party/sherpa-onnx/NATIVE_LICENSES.toml).
+  "LicenseRef-utf8proc-Unicode-data",
+  "Unlicense",
+  "Zlib",
+]
+
+# Licences with no attribution or notice requirement: no licence text needed.
+no_notice = ["0BSD", "CC0-1.0", "MIT-0", "Unlicense"]
+
+# Preferred alternative when an expression offers a choice; earlier wins.
+preference = [
+  "Apache-2.0",
+  "MIT",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "MIT-0",
+  "Unlicense",
+  "CC0-1.0",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "NCSA",
+  "bzip2-1.0.6",
+  "CDLA-Permissive-2.0",
+  "MPL-2.0",
+  "OFL-1.1",
+]
+
+# Reviewed licence for a crate that declares only `license-file`. Pinned to the
+# crate version and the SHA-256 of that file, so any change fails until it is
+# reviewed again.
+[[override]]
+name = "model2vec-rs"
+version = "0.4.0"
+license = "MIT"
+file = "LICENSE"
+sha256 = "6869ad291a9df9866448579b7157bf337373a21ced5b4b315e68b2924aff2ab9"
+evidence = "Crate manifest has license-file = \"LICENSE\" and no SPDX licence; the shipped LICENSE is the MIT License text (Copyright (c) 2025 The Minish Lab)."
+
+# Licence texts a crate does not ship, each reviewed from the crate's upstream
+# repository at the locked version (commit from the package's
+# .cargo_vcs_info.json) and pinned by SHA-256. Where upstream publishes no
+# licence text at all, the SPDX License List text of the declared licence is
+# used and the evidence says so; nothing here invents a copyright holder.
+# Reviewed 2026-11-17. Not listed: crates never linked into a shipped binary
+# (libfuzzer-sys is cfg(fuzzing) only; simd_helpers is a proc macro) and
+# libbz2-rs-sys, whose shipped LICENSE is its bzip2-1.0.6 text.
+
+[[text]]
+name = "block2"
+version = "0.5.1"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit 4fc083f1c6d6784577e38b0ee8dbd344481e2fd2, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc-sys"
+version = "0.3.5"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit 4fc083f1c6d6784577e38b0ee8dbd344481e2fd2, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2"
+version = "0.5.3"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit 5237cbf081d04ef75a1f6a207b4018e7c1ae7438, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2-app-kit"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit e282618be4c3a3b9542957e0c8540e9588472ce8, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2-core-data"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit e282618be4c3a3b9542957e0c8540e9588472ce8, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2-core-image"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit e282618be4c3a3b9542957e0c8540e9588472ce8, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2-foundation"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit e282618be4c3a3b9542957e0c8540e9588472ce8, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2-metal"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit e282618be4c3a3b9542957e0c8540e9588472ce8, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "objc2-quartz-core"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "Crate ships no licence file; its .cargo_vcs_info.json names madsmtm/objc2 commit e282618be4c3a3b9542957e0c8540e9588472ce8, whose root LICENSE.txt (https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt) is this MIT text."
+
+[[text]]
+name = "block2"
+version = "0.6.2"
+license = "MIT"
+file = "licenses/objc2-LICENSE.md"
+sha256 = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+evidence = "Crate ships no licence file; madsmtm/objc2 commit b4167b582b2f75f9a1be75495c41b765344fd03c (.cargo_vcs_info.json) has only LICENSE.md (https://github.com/madsmtm/objc2/blob/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md), which states this crate is MIT and links the OSI MIT text."
+
+[[text]]
+name = "block2"
+version = "0.6.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "The MIT copyright notice the same repository published as LICENSE.txt up to commit 5237cbf081d04ef75a1f6a207b4018e7c1ae7438 (objc2 0.5.3): https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt."
+
+[[text]]
+name = "objc2"
+version = "0.6.5"
+license = "MIT"
+file = "licenses/objc2-LICENSE.md"
+sha256 = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+evidence = "Crate ships no licence file; madsmtm/objc2 commit d7d2fa23ceaa5e6096c923b081040e5d81b3b9df (.cargo_vcs_info.json) has only LICENSE.md (https://github.com/madsmtm/objc2/blob/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md), which states this crate is MIT and links the OSI MIT text."
+
+[[text]]
+name = "objc2"
+version = "0.6.5"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "The MIT copyright notice the same repository published as LICENSE.txt up to commit 5237cbf081d04ef75a1f6a207b4018e7c1ae7438 (objc2 0.5.3): https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt."
+
+[[text]]
+name = "objc2-encode"
+version = "4.1.0"
+license = "MIT"
+file = "licenses/objc2-LICENSE.md"
+sha256 = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+evidence = "Crate ships no licence file; madsmtm/objc2 commit 8d214f5477365ffcbcbb7de058c86ed9a518efb7 (.cargo_vcs_info.json) has only LICENSE.md (https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md), which states this crate is MIT and links the OSI MIT text."
+
+[[text]]
+name = "objc2-encode"
+version = "4.1.0"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "The MIT copyright notice the same repository published as LICENSE.txt up to commit 5237cbf081d04ef75a1f6a207b4018e7c1ae7438 (objc2 0.5.3): https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt."
+
+[[text]]
+name = "objc2-foundation"
+version = "0.3.2"
+license = "MIT"
+file = "licenses/objc2-LICENSE.md"
+sha256 = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+evidence = "Crate ships no licence file; madsmtm/objc2 commit 7b1abfd750a2cacaea71d6a56ecfb83cb7de560b (.cargo_vcs_info.json) has only LICENSE.md (https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md), which states this crate is MIT and links the OSI MIT text."
+
+[[text]]
+name = "objc2-foundation"
+version = "0.3.2"
+license = "MIT"
+file = "licenses/objc2-MIT-LICENSE.txt"
+sha256 = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+evidence = "The MIT copyright notice the same repository published as LICENSE.txt up to commit 5237cbf081d04ef75a1f6a207b4018e7c1ae7438 (objc2 0.5.3): https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt."
+
+[[text]]
+name = "cookie-factory"
+version = "0.3.3"
+license = "MIT"
+file = "licenses/cookie-factory-0.3.3-LICENSES-MIT.txt"
+sha256 = "d09216dc1ea5f273997667935a8d6514d80f00b89fb6954ecc3a43e0a6e360de"
+evidence = "https://github.com/rust-bakery/cookie-factory/blob/d36b805dbd7dd65f2df947235c5bcc573afe2c76/LICENSES/MIT.txt (repository root at the commit in .cargo_vcs_info.json, linked from its README)."
+
+[[text]]
+name = "harfrust"
+version = "0.5.2"
+license = "MIT"
+file = "licenses/harfrust-0.5.2-LICENSE.txt"
+sha256 = "3a7c3f0b887abb7c638faf022d29257418458614c6724b120ceeffb279f9c7d2"
+evidence = "https://github.com/harfbuzz/harfrust/blob/efdae3142ab76a2f1524d72cff9e3dfdc5afd7ca/LICENSE (repository root at the commit in .cargo_vcs_info.json; the crate folder has none)."
+
+[[text]]
+name = "number_prefix"
+version = "0.4.0"
+license = "MIT"
+file = "licenses/number_prefix-0.4.0-LICENCE.txt"
+sha256 = "df8d11b64ecce43b1229cd72745c59513b54ba39f05e3ec7c06780617b7b1fcc"
+evidence = "https://github.com/ogham/rust-number-prefix/blob/eb6ebd215d50df1b199737f0356b988bebaedc84/LICENCE (repository root at the commit in .cargo_vcs_info.json)."
+
+[[text]]
+name = "malloc_buf"
+version = "0.0.6"
+license = "MIT"
+file = "licenses/malloc_buf-LICENSE.txt"
+sha256 = "aced7b57e474a63edb5a724954222bf7659c01ceef0e648a03af799582991db7"
+evidence = "Tag 0.0.6 (a7811e5f4c6f9685dd57ad9bfe34e9bf6b0ba4f9) has no licence file; the author added this MIT LICENSE in https://github.com/SSheldon/malloc_buf/commit/d9a3e539642bd90e07df458d226b19cdfa606863 (2020-06-29, 'Adding an MIT license since crates.io indicates the intention was ...')."
+
+[[text]]
+name = "rsqlite-vfs"
+version = "0.2.0"
+license = "MIT"
+file = "licenses/rsqlite-vfs-0.2.0-LICENSE.txt"
+sha256 = "e1c1975c3474cce31722836f101a40ffaf1cc784e4d2f38ce3e77b9712934e78"
+evidence = "https://github.com/Spxg/sqlite-wasm-rs/blob/3d8318430bacd7d6a1aafdf5b5e54fb0fee8d451/LICENSE (repository root at the commit in .cargo_vcs_info.json; the crate folder has none)."
+
+[[text]]
+name = "rust-i18n-support"
+version = "4.2.4"
+license = "MIT"
+file = "licenses/rust-i18n-4.2.4-LICENSE.txt"
+sha256 = "d6fde6c28ecbccfc7f6d97c0badbb14bbea2cc8f5e81a8c1537204bdfed9a6d5"
+evidence = "https://github.com/longbridge/rust-i18n/blob/5f3ea5ba03395f2f2908e3587e01788cfdfd3555/LICENSE (repository root at the commit in .cargo_vcs_info.json; the crate folder has none)."
+
+[[text]]
+name = "rust-i18n-macro"
+version = "4.2.4"
+license = "MIT"
+file = "licenses/rust-i18n-4.2.4-LICENSE.txt"
+sha256 = "d6fde6c28ecbccfc7f6d97c0badbb14bbea2cc8f5e81a8c1537204bdfed9a6d5"
+evidence = "https://github.com/longbridge/rust-i18n/blob/5f3ea5ba03395f2f2908e3587e01788cfdfd3555/LICENSE (repository root at the commit in .cargo_vcs_info.json; the crate folder has none)."
+
+[[text]]
+name = "sonora-aec3"
+version = "0.3.0"
+license = "BSD-3-Clause"
+file = "licenses/sonora-0.3.0-LICENSE.txt"
+sha256 = "d130affc26760004865ad4fb009f8daf7f6d4b1b738f01fb7623e99c1a275a4a"
+evidence = "https://github.com/dignifiedquire/sonora/blob/1632d47c1e77d0857f9145bd175134b348541e11/LICENSE (repository root at the commit in .cargo_vcs_info.json; the crate folder has none)."
+
+[[text]]
+name = "taffy"
+version = "0.15.1"
+license = "MIT"
+file = "licenses/taffy-0.15.1-LICENSE.txt"
+sha256 = "f97daf1a0124413dccf399a4e6626b4b74acd05282f80b6d64ac82225650b77a"
+evidence = "https://github.com/DioxusLabs/taffy/blob/0064bd54cbe38bf1d8bcd6ec6ab0704d45fb048a/LICENSE (repository root at the commit in .cargo_vcs_info.json)."
+
+[[text]]
+name = "valuable"
+version = "0.1.1"
+license = "MIT"
+file = "licenses/valuable-0.1.1-LICENSE.txt"
+sha256 = "ed60d479b8fd1f64e9cbc3de449a16a53ac1b3d1b6aeb9bf9d190a8e93061b44"
+evidence = "https://github.com/tokio-rs/valuable/blob/9efc29b6e58cef28f6566a47aa7e142a55fead77/LICENSE (repository root at the commit in .cargo_vcs_info.json; the crate folder has none)."
+
+[[text]]
+name = "block"
+version = "0.1.6"
+license = "MIT"
+file = "licenses/spdx-3.27.0-MIT.txt"
+sha256 = "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+evidence = "Upstream https://github.com/SSheldon/rust-block publishes no licence text or copyright notice (tag 0.1.6 and HEAD checked; none in README or source headers); the crate declares license = \"MIT\", authors Steven Sheldon. Text: SPDX License List 3.27.0 text/MIT.txt (https://github.com/spdx/license-list-data/blob/v3.27.0/text/MIT.txt) with its template copyright line unchanged."
+
+[[text]]
+name = "dispatch"
+version = "0.2.0"
+license = "MIT"
+file = "licenses/spdx-3.27.0-MIT.txt"
+sha256 = "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+evidence = "Upstream https://github.com/SSheldon/rust-dispatch publishes no licence text or copyright notice (commit 82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748 and HEAD checked; none in README or source headers); the crate declares license = \"MIT\", authors Steven Sheldon. Text: SPDX License List 3.27.0 text/MIT.txt (https://github.com/spdx/license-list-data/blob/v3.27.0/text/MIT.txt) with its template copyright line unchanged."
+
+[[text]]
+name = "objc-foundation"
+version = "0.1.1"
+license = "MIT"
+file = "licenses/spdx-3.27.0-MIT.txt"
+sha256 = "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+evidence = "Upstream https://github.com/SSheldon/rust-objc-foundation publishes no licence text or copyright notice (tag 0.1.1 and HEAD checked; none in README or source headers); the crate declares license = \"MIT\", authors Steven Sheldon. Text: SPDX License List 3.27.0 text/MIT.txt (https://github.com/spdx/license-list-data/blob/v3.27.0/text/MIT.txt) with its template copyright line unchanged."
+
+[[text]]
+name = "objc_exception"
+version = "0.1.2"
+license = "MIT"
+file = "licenses/spdx-3.27.0-MIT.txt"
+sha256 = "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+evidence = "Upstream https://github.com/SSheldon/rust-objc-exception publishes no licence text or copyright notice (commit c86ad3a52984461fc5c63980d12e8ceed847854c and HEAD checked; none in README or source headers); the crate declares license = \"MIT\", authors Steven Sheldon. Text: SPDX License List 3.27.0 text/MIT.txt (https://github.com/spdx/license-list-data/blob/v3.27.0/text/MIT.txt) with its template copyright line unchanged."
+
+[[text]]
+name = "objc_id"
+version = "0.1.1"
+license = "MIT"
+file = "licenses/spdx-3.27.0-MIT.txt"
+sha256 = "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+evidence = "Upstream https://github.com/SSheldon/rust-objc-id publishes no licence text or copyright notice (tag 0.1.1 and HEAD checked; none in README or source headers); the crate declares license = \"MIT\", authors Steven Sheldon. Text: SPDX License List 3.27.0 text/MIT.txt (https://github.com/spdx/license-list-data/blob/v3.27.0/text/MIT.txt) with its template copyright line unchanged."
+
+[[text]]
+name = "seahash"
+version = "4.1.0"
+license = "MIT"
+file = "licenses/spdx-3.27.0-MIT.txt"
+sha256 = "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+evidence = "Upstream https://gitlab.redox-os.org/redox-os/seahash publishes no licence text or copyright notice (commit 94b632aeac099031c373599313d5b5f0acbbaec0 checked; none in README or source headers); the crate declares license = \"MIT\", authors ticki, Tom Almeida. Text: SPDX License List 3.27.0 text/MIT.txt (https://github.com/spdx/license-list-data/blob/v3.27.0/text/MIT.txt) with its template copyright line unchanged."
+
+[[text]]
+name = "dwrote"
+version = "0.11.5"
+license = "MPL-2.0"
+file = "licenses/spdx-3.27.0-MPL-2.0.txt"
+sha256 = "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+evidence = "Upstream https://github.com/servo/dwrote-rs publishes no licence file (commit 5bbe910f7156213cdbaca4e1addfe85ea8b421ef and HEAD checked); the crate declares MPL-2.0. Text: SPDX License List 3.27.0 text/MPL-2.0.txt, byte-identical to Eigen 5.0.1's COPYING.MPL2. Source Code Form: https://crates.io/crates/dwrote/0.11.5 (Windows-only dependency)."
+
+[[text]]
+name = "xim-ctext"
+version = "0.3.0"
+license = "MIT"
+file = "licenses/xim-rs-LICENSE.txt"
+sha256 = "efa1224931b98468f5005f77285457f8d2eab0a77a15941aa10abbab1ae9a74e"
+evidence = "https://github.com/Riey/xim-rs/blob/65f77e44524ba487285a63aac4080faf2c05b4ed/LICENSE (repository root at the commit in .cargo_vcs_info.json; the xim-ctext folder has none). MIT, Copyright (c) 2020 Riey; byte-identical to the LICENSE zed-xim 0.4.0-zed ships. Linux-only, through GPUI's X11 input method."
+
+[[text]]
+name = "xim-parser"
+version = "0.2.2"
+license = "MIT"
+file = "licenses/xim-rs-LICENSE.txt"
+sha256 = "efa1224931b98468f5005f77285457f8d2eab0a77a15941aa10abbab1ae9a74e"
+evidence = "https://github.com/Riey/xim-rs/blob/7300de35a111de2df1a694bf70454532a8419685/LICENSE (repository root at the commit in .cargo_vcs_info.json; the xim-parser folder has none). MIT, Copyright (c) 2020 Riey; byte-identical to the LICENSE zed-xim 0.4.0-zed ships. Linux-only, through GPUI's X11 input method."

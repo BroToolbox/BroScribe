@@ -1,0 +1,16 @@
+<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="tile" x1="0.1" y1="0.05" x2="0.9" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(976 0 0 976 12 12)">
+            <stop offset="0" stop-color="#383343"/>
+            <stop offset="1" stop-color="#1a1a27"/>
+        </linearGradient>
+        <linearGradient id="glyph" x1="0" y1="0" x2="1" y2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(600 0 0 560 200 220)">
+            <stop offset="0" stop-color="#d3b1ff"/>
+            <stop offset="1" stop-color="#a774f5"/>
+        </linearGradient>
+    </defs>
+    <g transform="matrix(1.024 0 0 1.024 0 0)">
+        <path fill="url(#tile)" stroke="none" d="M 238 12 L 762 12 C 886.81635 12 988 113.183655 988 238 L 988 762 C 988 886.81635 886.81635 988 762 988 L 238 988 C 113.183655 988 12 886.81635 12 762 L 12 238 C 12 113.183655 113.183655 12 238 12 Z"/>
+        <path fill="none" stroke="url(#glyph)" stroke-width="92" stroke-linecap="round" d="M 200 430 L 200 570 M 350 290 L 350 733 M 500 220 L 500 780 M 650 337 L 650 687 M 800 430 L 800 570"/>
+    </g>
+</svg>

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=BroScribe
+Comment=Record and transcribe meetings
+Exec=broscribe-app
+Icon=org.broscribe.BroScribe
+Terminal=false
+Categories=Office;AudioVideo;
+X-BroScribe-Managed=true

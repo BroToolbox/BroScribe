@@ -1,0 +1,26 @@
+# sherpa-onnx v2.0.1 builder paths retained by the pinned static libraries.
+# Verify each archive against SHA256SUMS, then extract its lib/ members and
+# inspect strings from *.a / *.lib. See docs/release.md for the scan.
+# The trailing separator keeps the exceptions inside the named projects.
+
+osx-arm64 = [
+    "/Users/runner/work/onnxruntime-build/onnxruntime-build/",
+    "/Users/runner/work/sherpa-onnx/sherpa-onnx/",
+    "/k2-fsa/sherpa-onnx/",
+    "/k2-fsa/icefall/",
+]
+linux-aarch64 = [
+    "/k2-fsa/sherpa-onnx/",
+    "/k2-fsa/icefall/",
+]
+linux-x64 = [
+    "/home/runner/work/sherpa-onnx/sherpa-onnx/",
+    "/k2-fsa/sherpa-onnx/",
+    "/k2-fsa/icefall/",
+]
+win-x64 = [
+    'd:\a\onnxruntime-build\onnxruntime-build\',
+    'd:\a\sherpa-onnx\sherpa-onnx\',
+    "/k2-fsa/sherpa-onnx/",
+    "/k2-fsa/icefall/",
+]

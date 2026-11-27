@@ -1,0 +1,57 @@
+name: Merge a pull request
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull-request:
+        description: Pull request number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: broscribe-merge-main
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    # The environment must also restrict deployment refs to main.
+    if: >-
+      github.repository == 'BroToolbox/BroScribe' &&
+      github.ref == 'refs/heads/main' &&
+      (github.actor_id == '4291485' || github.actor_id == '25078493') &&
+      (github.triggering_actor == 'raphaelbarreiros' || github.triggering_actor == 'renan-brasilio')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: merge
+    steps:
+      - name: Fetch policy from the protected branch
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git init --quiet .
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --quiet --no-tags --depth=1 "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "${GITHUB_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Create the repository-only merge token
+        id: merge-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ vars.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - name: Check the author and current reviews, then merge
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull-request }}
+        run: python3 scripts/merge-pr.py "$PULL_REQUEST_NUMBER"

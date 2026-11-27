@@ -1,0 +1,32 @@
+[package]
+name = "broscribe-platform-windows"
+description = "BroScribe native Windows platform backend"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The pure policy modules (pipe naming, profile identity) build on every OS.
+broscribe-platform.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+tempfile.workspace = true
+windows = { version = "=0.62.2", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications", "Win32_Foundation", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_IO", "Win32_System_WinRT", "Win32_System_Performance", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_Accessibility", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Credentials", "Win32_Security_Authorization", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_ProcessStatus", "Win32_System_SystemInformation"] }
+windows-core = "=0.62.2"
+wasapi = "=0.27.0"
+cpal = "=0.18.2"
+keyring = { version = "=4.2.0", default-features = false, features = ["v1"] }
+notify = "=8.2.2"
+broscribe-ipc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+broscribe-readers = { workspace = true, features = ["conformance"] }
+futures.workspace = true
+
+[lints]
+workspace = true
