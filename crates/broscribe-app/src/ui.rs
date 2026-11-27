@@ -32,7 +32,7 @@ pub(crate) mod icons;
 pub(crate) mod keymap;
 pub mod kit;
 pub(crate) mod once;
-// Written by `docs/redesign/tools/palette.py --theme-json`; rustfmt would
+// Written by `scripts/palette.py --theme-json`; rustfmt would
 // make it differ from what `--check-generated` expects.
 #[rustfmt::skip]
 mod palette_gen;

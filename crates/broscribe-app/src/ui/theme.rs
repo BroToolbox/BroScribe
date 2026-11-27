@@ -5,7 +5,7 @@
 //! contrast theme, the XDG portal's contrast setting).
 //!
 //! `assets/themes/broscribe.json` is generated, with `ui::palette_gen`, by
-//! `docs/redesign/tools/palette.py --theme-json` from the design system's
+//! `scripts/palette.py --theme-json` from the design system's
 //! `color.css`: every window is a desk, every block of content a card, and
 //! one colour means one thing (violet is BroScribe, crimson recording or
 //! failure, amber a decision, teal done, blue information). Every key is a

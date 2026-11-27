@@ -6,7 +6,7 @@
 //! primary button.
 //!
 //! The values come from `palette_gen.rs`, which
-//! `docs/redesign/tools/palette.py --theme-json` writes from the design
+//! `scripts/palette.py --theme-json` writes from the design
 //! system's `color.css` together with the theme JSON, so the two never
 //! disagree. Each role has a light and a dark value and an Increase Contrast
 //! version of both, chosen from the theme's mode and the display settings;

@@ -41,8 +41,8 @@ Local equivalents: `cargo fmt --all`, `cargo clippy --workspace --all-targets --
 The [screenshots workflow](../.github/workflows/screenshots.yml) is not a
 required check. It runs on every push to `main`, on pull requests into `main`
 that change `crates/`, `third_party/`, the Cargo files, `rust-toolchain.toml`,
-`.cargo/`, `scripts/linux-desktop/`, `scripts/docker-linux-test.sh`,
-`docs/redesign/` or the workflow itself, and on `workflow_dispatch`; never on
+`.cargo/`, `scripts/linux-desktop/`, `scripts/docker-linux-test.sh` or the
+workflow itself, and on `workflow_dispatch`; never on
 `pull_request_target`. Its top-level permissions are empty. The `capture` job
 (`ubuntu-24.04-arm`, `contents: read`) checks out the exact commit as CI does
 and runs `scripts/linux-desktop/screenshots.sh`: the pinned desktop image, the

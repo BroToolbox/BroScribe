@@ -1,4 +1,4 @@
-"""Tests for docs/redesign/tools/palette.py, the one source of the app's colours.
+"""Tests for scripts/palette.py, the one source of the app's colours.
 
 The app builds from two files the script writes (the theme JSON and
 `ui/palette_gen.rs`); these tests fail when either drifts from `color.css`, and
@@ -15,7 +15,7 @@ import unittest
 
 from support import REPO
 
-PALETTE = REPO / "docs" / "redesign" / "tools" / "palette.py"
+PALETTE = REPO / "scripts" / "palette.py"
 
 
 def load_palette():

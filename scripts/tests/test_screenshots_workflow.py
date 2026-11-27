@@ -284,7 +284,7 @@ class Workflow(unittest.TestCase):
         paths = re.findall(r"^      - '([^']+)'$", self.header, flags=re.MULTILINE)
         self.assertEqual([
             "crates/**", "third_party/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**",
-            "scripts/linux-desktop/**", "scripts/docker-linux-test.sh", "docs/redesign/**",
+            "scripts/linux-desktop/**", "scripts/docker-linux-test.sh",
             ".github/workflows/screenshots.yml",
         ], paths)
 

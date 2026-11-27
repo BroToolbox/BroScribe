@@ -33,7 +33,6 @@ on:
       - '.cargo/**'
       - 'scripts/linux-desktop/**'
       - 'scripts/docker-linux-test.sh'
-      - 'docs/redesign/**'
       - '.github/workflows/screenshots.yml'
   workflow_dispatch:
 
