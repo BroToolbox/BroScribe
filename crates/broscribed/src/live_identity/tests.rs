@@ -847,7 +847,8 @@ async fn record_live_watchdog_restarts_a_worker_without_useful_progress() {
     let epochs = identity_epochs(
         worker,
         quick_settings(),
-        Duration::from_secs(4),
+        // Kill, one-second backoff and respawn, with room for slow runners.
+        Duration::from_secs(6),
         Some(fixture),
     )
     .await;
@@ -887,7 +888,8 @@ async fn record_live_watchdog_restarts_a_worker_stuck_in_its_first_window() {
     let epochs = identity_epochs(
         worker,
         quick_settings(),
-        Duration::from_secs(4),
+        // Kill, one-second backoff and respawn, with room for slow runners.
+        Duration::from_secs(6),
         Some(fixture),
     )
     .await;
@@ -920,8 +922,9 @@ async fn record_live_speakers_loading_is_reported_until_ready() {
     // Loading lines every 0.1 s for 2 s, past the 1.6 s within which a
     // silent worker is killed: signs of life, so it is not killed. The
     // window leaves room for slow hosted runners, where the twenty lines
-    // took 3.5 s; after ready the fixture sends heartbeats every 50 ms, so
-    // a longer window cannot show a restart.
+    // had not finished within 3.5 s. After ready the fixture keeps sending
+    // idle heartbeats until shutdown, so the longer window should keep the
+    // worker in epoch 1; a restart in it still fails the test.
     let fixture = TimingWorker::new();
     let worker = fixture.command(&[
         "speakers",
@@ -975,7 +978,9 @@ async fn record_live_speakers_heartbeats_and_warnings_before_ready_are_no_sign_o
     let states = identity_states(
         worker,
         quick_settings(),
-        Duration::from_millis(1500),
+        // The silence kill and reap must finish before the stop; slow
+        // runners stretch the fixture's waits and the reap.
+        Duration::from_secs(4),
         Some(fixture),
     )
     .await;
