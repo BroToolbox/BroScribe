@@ -193,18 +193,24 @@ def forbidden_paths(paths, upstream=()):
     explicit_posix, explicit_windows = path_needles(paths)
     upstream_posix, upstream_windows = path_needles(upstream)
 
-    def contains(data: bytes) -> bool:
+    def contains(data: bytes) -> bytes | None:
+        """Return the first forbidden path found, or None."""
         # An exception can never override a specifically forbidden build root.
-        if any(needle in data for needle in explicit_posix):
-            return True
+        for needle in explicit_posix:
+            if needle in data:
+                return needle
         if explicit_windows:
             folded = data.lower()
-            if any(needle in folded for needle in explicit_windows):
-                return True
+            for needle in explicit_windows:
+                if needle in folded:
+                    return needle
         for needle in upstream_posix:
             data = data.replace(needle, b"\0" * len(needle))
         for needle in upstream_windows:
             data = re.sub(re.escape(needle), b"\0" * len(needle), data, flags=re.IGNORECASE)
-        return any(pattern.search(data) for pattern in COMMON_PATHS)
+        for pattern in COMMON_PATHS:
+            if match := pattern.search(data):
+                return match.group()
+        return None
 
     return contains

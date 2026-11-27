@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -310,9 +311,11 @@ class DesktopArtifacts(unittest.TestCase):
                 windows = target == WINDOWS
                 name, binary = ("broscribe.exe", pe()) if windows else ("broscribe", elf(TARGETS[target][2]))
                 self.emit(build, {**files, name: (binary + upstream, 0o755)})
-                with self.assertRaisesRegex(ValueError, "forbidden builder or home"):
+                with self.assertRaisesRegex(ValueError, "forbidden builder or home") as raised:
                     self.emit(build, {**files, name: (binary + b"\0".join((upstream, builder)), 0o755)},
                               forbid=["/opt/runner/scratch"])
+                # The message names the match so a CI log shows what leaked.
+                self.assertIn(builder.decode()[:12].lower(), str(raised.exception).lower())
 
         build, files = self.fixture(LINUX[1])
         other_target = cases[0][1]
@@ -400,14 +403,19 @@ class DesktopArtifacts(unittest.TestCase):
         # The Linux builder runs only on Linux. On a Windows test host the
         # fixture still exercises expansion and verifier roots above.
         if os.name != "nt":
-            with patch.object(package, "run") as run:
+            with patch.object(package, "run", side_effect=self.read_rustflags) as run:
                 package.build_native(LINUX[0], roots["__build_target__"].resolve(), roots, "/bin/bash")
-            config = next(arg for arg in run.call_args.args if ".rustflags=" in arg)
+            config = self.rustflags_config
             native = run.call_args.kwargs["env"][f"CFLAGS_{LINUX[0].replace('-', '_')}"]
             for label, root in roots.items():
                 for path in (root, root.resolve()):
                     self.assertIn(f"--remap-path-prefix={path}=/{label}", config)
                     self.assertIn(f"-ffile-prefix-map={path}=/{label}", native)
+
+    def read_rustflags(self, *command, **kwargs):
+        config = Path(command[command.index("--config") + 1])
+        self.assertTrue(config.is_absolute())
+        self.rustflags_config = config.read_text(encoding="utf-8")
 
     def test_explicit_runner_root_overrides_a_native_path_exception(self):
         build, files = self.fixture(LINUX[0])
@@ -431,9 +439,17 @@ class DesktopArtifacts(unittest.TestCase):
         for shell_flags in ("1", "0"):
             with self.subTest(shell_flags=shell_flags):
                 env = {cflags: "/DSYNTHETIC_C", cxxflags: "/DSYNTHETIC_CXX", "CC_SHELL_ESCAPED_FLAGS": shell_flags}
-                with patch.dict(os.environ, env, clear=True), patch.object(package, "run") as run:
+                with patch.dict(os.environ, env, clear=True), \
+                        patch.object(package, "run", side_effect=self.read_rustflags) as run:
                     package.build_native(WINDOWS, roots["__build_target__"], roots, bash)
                 self.assertEqual(run.call_args.args[:2], (bash, "scripts/build-target.sh"))
+                # Git Bash collapses escaped backslashes in a quoted argument,
+                # so no argument may carry the TOML value inline.
+                self.assertFalse(any("\\" in arg for arg in run.call_args.args[2:]))
+                rustflags = tomllib.loads(self.rustflags_config)["target"][WINDOWS]["rustflags"]
+                for _, root in build_root_spellings(roots):
+                    self.assertIn(f"--remap-path-prefix={root}=/{_}", rustflags)
+                self.assertEqual(rustflags[-1], "-Clink-arg=/PDBALTPATH:%_PDB%")
                 forwarded = run.call_args.kwargs["env"]
                 split = shlex.split if shell_flags == "1" else str.split
                 self.assertEqual(split(forwarded[cflags]), ["/DSYNTHETIC_C", *expected])
