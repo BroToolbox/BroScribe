@@ -114,7 +114,9 @@ if [[ ! -f "$ARCHIVE" ]]; then
   part=""
 fi
 
-work="$(mktemp -d)"
+# Unpack beside the destination: the final mv is then a rename on the same
+# volume, not a copy of about 1 GB from the system temp drive (Windows CI).
+work="$(mktemp -d "${here}/unpack.XXXXXX")"
 tar -xjf "$ARCHIVE" -C "$work"
 src="$(find "$work" -mindepth 1 -maxdepth 2 -type d -name lib | head -n 1)"
 [[ -n "$src" ]] || { echo "no lib/ folder in ${ARCHIVE}" >&2; exit 1; }
