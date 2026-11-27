@@ -265,7 +265,12 @@ async fn crashed_worker_retries_then_fails_after_three_attempts() {
 
 #[tokio::test]
 async fn socket_subscription_replays_pending_prompts() {
+    // A short folder on Unix: the agent's socket lives under the data folder.
+    // Windows uses a named pipe and has no /tmp.
+    #[cfg(unix)]
     let tmp = tempfile::tempdir_in("/tmp").unwrap();
+    #[cfg(not(unix))]
+    let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path());
     let prompt = d.ask_to_record(RecordStartParams {
         app: Some("synthetic-app".into()),
