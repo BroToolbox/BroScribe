@@ -93,6 +93,9 @@ jobs:
     name: macOS arm64 (clippy, tests)
     runs-on: macos-15
     timeout-minutes: 120
+    env:
+      # Dev/test builds keep line tables only, as on Windows and Linux.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Check out the exact commit
         env:
@@ -192,7 +195,11 @@ jobs:
 
       - name: Workspace build and tests in the pinned image
         env:
-          CARGO_BUILD_JOBS: "2"
+          # Hosted runners have 4 vCPUs and 16 GiB without a Docker VM;
+          # local Docker Desktop runs keep the script's lower guidance.
+          CARGO_BUILD_JOBS: "4"
+          # Dev/test builds keep line tables only, as on Windows.
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
           LINUX_BASELINE: ${{ matrix.args }}
         run: |
           set -euo pipefail
@@ -201,15 +208,14 @@ jobs:
           scripts/docker-linux-test.sh "${args[@]}"
           git diff --exit-code -- Cargo.lock
 
-  # Two parallel lanes on separate runners. They share no build output: Clippy
-  # and the debug tests reuse one dev-profile build-script run (whisper.cpp),
-  # while the release build compiles everything again with its own profile.
+  # Two parallel lanes on separate runners, balanced by duration: the debug
+  # tests (compile and run) alone, and Clippy followed by the release build.
   windows:
     name: Windows x86-64 MSVC (${{ matrix.lane }})
     strategy:
       fail-fast: false
       matrix:
-        lane: [clippy and tests, release build]
+        lane: [tests, clippy and release build]
     runs-on: windows-2025
     timeout-minutes: 120
     env:
@@ -286,7 +292,7 @@ jobs:
         run: third_party/sherpa-onnx/fetch.sh --target win-x64
 
       - name: Clippy (warnings are errors)
-        if: matrix.lane == 'clippy and tests'
+        if: matrix.lane == 'clippy and release build'
         run: |
           set -euo pipefail
           msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
@@ -298,7 +304,7 @@ jobs:
       # Linking and fake/synthetic tests are distinct from Windows hardware,
       # permissions, UI Automation, credentials, tray and GUI acceptance.
       - name: Workspace tests (fakes and synthetic fixtures)
-        if: matrix.lane == 'clippy and tests'
+        if: matrix.lane == 'tests'
         run: |
           set -euo pipefail
           msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
@@ -306,19 +312,19 @@ jobs:
           scripts/build-target.sh x86_64-pc-windows-msvc test --locked --workspace --no-fail-fast
 
       - name: Cleanup matcher (Windows PowerShell 5.1)
-        if: matrix.lane == 'release build'
+        if: matrix.lane == 'clippy and release build'
         shell: powershell
         run: powershell.exe -NoProfile -File crates/broscribe-platform-windows/tests/cleanup-matcher.Tests.ps1
 
       - name: Cleanup matcher (PowerShell 7)
-        if: matrix.lane == 'release build'
+        if: matrix.lane == 'clippy and release build'
         shell: pwsh
         run: pwsh -NoProfile -File crates/broscribe-platform-windows/tests/cleanup-matcher.Tests.ps1
 
       # The shipped libraries and executables link with the release profile.
-      # Test and example targets are already built and run in the debug lane.
+      # Test and example targets are already built and run in the tests lane.
       - name: Workspace release build (libraries and executables)
-        if: matrix.lane == 'release build'
+        if: matrix.lane == 'clippy and release build'
         run: |
           set -euo pipefail
           msvc_bin="$(cygpath -u "$BROSCRIBE_MSVC_BIN")"
@@ -326,7 +332,7 @@ jobs:
           scripts/build-target.sh x86_64-pc-windows-msvc build --locked --workspace --release
 
       - name: Verify the Windows third-party licence inventory
-        if: matrix.lane == 'release build'
+        if: matrix.lane == 'clippy and release build'
         env:
           # cargo metadata is UTF-8; Windows Python otherwise decodes it as cp1252.
           PYTHONUTF8: "1"
