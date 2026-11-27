@@ -1,0 +1,56 @@
+# Candidate structural anchors only. Owner must verify these in a synthetic call.
+id = "meet-safari"
+# macOS only: Safari has no Linux or Windows identity.
+bundle_ids = ["com.apple.Safari"]
+verified = false
+structural_verified = false
+manual_accessibility = false
+
+[self_labels]
+en = ["You", "Me"]
+pt = ["Você", "Eu"]
+es = ["Tú", "Yo"]
+fr = ["Vous", "Moi"]
+de = ["Du", "Ich"]
+
+[roster]
+items = 'AXGroup[description="Participants"] AXGroup[identifier^="participant-"]'
+[roster.name]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[roster.email]
+selector = 'AXStaticText[identifier="email"]'
+attribute = "value"
+
+[captions]
+items = 'AXGroup[description="Captions"] > AXGroup'
+[captions.id]
+attribute = "identifier"
+[captions.speaker]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[captions.text]
+selector = 'AXStaticText'
+attribute = "value"
+index = 1
+
+# Call state (plan H): as meet-chrome; candidates to verify in a synthetic call.
+[call]
+active = [
+    'AXWebArea AXButton[description="Leave call"]',
+    'AXWebArea AXButton[description="Sair da chamada"]',
+]
+[call.context]
+scope = 'AXWebArea'
+origins = ["https://meet.google.com"]
+key = "aaa-aaaa-aaa"
+[[call.ended]]
+all = ['AXWebArea AXHeading[title="You left the meeting"]', 'AXWebArea AXButton[title="Rejoin"]']
+[[call.ended]]
+all = ['AXWebArea AXHeading > AXStaticText[value="You left the meeting"]', 'AXWebArea AXButton[title="Rejoin"]']
+[[call.ended]]
+all = ['AXWebArea AXHeading[title="Você saiu da reunião"]', 'AXWebArea AXButton[title="Participar novamente"]']
+[[call.ended]]
+all = ['AXWebArea AXHeading > AXStaticText[value="Você saiu da reunião"]', 'AXWebArea AXButton[title="Participar novamente"]']

@@ -1,0 +1,27 @@
+[package]
+name = "broscribe-platform"
+description = "BroScribe platform traits, portable implementations and fakes"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+broscribe-core.workspace = true
+chrono.workspace = true
+futures.workspace = true
+# Recording overlay: the borrowed handle of the app's own panel window.
+raw-window-handle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+symphonia.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

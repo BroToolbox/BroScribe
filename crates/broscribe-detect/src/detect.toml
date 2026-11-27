@@ -1,0 +1,112 @@
+# Meeting detection rules (design §9). Data, not code: a `detect.toml` in the
+# BroScribe data directory overrides this table (same `id` replaces an app,
+# new ids are added, `[timing]` keys override one by one, helpers are tried
+# before these).
+#
+# A meeting starts when an app below holds the microphone and its rule
+# matches. Rules with `title_patterns` also need a window title to match;
+# titles depend on the platform (optional Screen Recording on macOS; X11
+# on Linux) — without them `policy_without_titles` applies.
+# Patterns are case-insensitive globs (`*` any run, `?` one character).
+# `bundle_ids` accepts macOS bundles, Linux PipeWire application ids / binary
+# names, and Windows executable file names (never installation paths).
+#
+# Policies: auto (record), ask (notification with Record / Ignore), off.
+
+version = 1
+
+[timing]
+# The mic must stay released this long before an end is considered.
+mic_release_debounce_s = 20
+# After the debounce, the end needs the rule to stop matching (window gone
+# or title no longer matching) or this long since the release.
+end_confirmation_s = 60
+# No new detection for the same app this long after an end.
+cooldown_s = 30
+
+# Helper processes mapped to their app. Without `parent`, the process the
+# system holds responsible for the helper is used (e.g. Safari for WebKit).
+[[helpers]]
+prefix = "com.google.Chrome.helper"
+parent = "com.google.Chrome"
+
+[[helpers]]
+prefix = "com.microsoft.edgemac.helper"
+parent = "com.microsoft.edgemac"
+
+[[helpers]]
+prefix = "com.apple.WebKit."
+
+[[helpers]]
+# *verify* the Teams (work or school) helper bundle ids on a machine with Teams.
+prefix = "com.microsoft.teams2."
+parent = "com.microsoft.teams2"
+
+[[helpers]]
+prefix = "us.zoom."
+parent = "us.zoom.xos"
+
+[[helpers]]
+prefix = "com.tinyspeck.slackmacgap.helper"
+parent = "com.tinyspeck.slackmacgap"
+
+[[helpers]]
+prefix = "com.hnc.Discord.helper"
+parent = "com.hnc.Discord"
+
+[[apps]]
+id = "teams"
+name = "Microsoft Teams"
+bundle_ids = ["com.microsoft.teams2", "com.microsoft.teams", "teams", "teams-for-linux", "com.github.IsmaelMartinez.teams_for_linux", "teams.exe", "ms-teams.exe"]
+policy = "auto"
+
+[[apps]]
+id = "zoom"
+name = "Zoom"
+bundle_ids = ["us.zoom.xos", "zoom", "us.zoom.Zoom", "zoom.exe"]
+policy = "auto"
+
+[[apps]]
+id = "meet"
+name = "Google Meet"
+# Browsers hold the mic for many sites: the tab title tells Meet apart.
+# `*` at the end of a bundle id matches by prefix (Chrome app shims for the
+# Meet PWA).
+bundle_ids = [
+    "com.google.Chrome",
+    "com.google.Chrome.app.*",
+    "com.microsoft.edgemac",
+    "com.apple.Safari",
+    "chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+    "org.chromium.Chromium", "chrome.exe",
+    "microsoft-edge", "microsoft-edge-stable", "msedge", "com.microsoft.Edge", "msedge.exe",
+    # Candidate browser identities; native call/locale acceptance remains *verify*.
+    "com.brave.Browser", "brave-browser", "brave-browser-stable", "brave", "brave.exe",
+    "company.thebrowser.Browser", "arc.exe",
+    "com.vivaldi.Vivaldi", "vivaldi", "vivaldi-stable", "vivaldi-bin", "vivaldi.exe",
+]
+title_patterns = ["Meet - *", "Meet – *", "Google Meet*", "*meet.google.com*"]
+policy = "auto"
+policy_without_titles = "ask"
+
+[[apps]]
+id = "slack"
+name = "Slack huddle"
+bundle_ids = ["com.tinyspeck.slackmacgap", "slack", "com.slack.Slack", "slack.exe"]
+# *verify* the huddle window title on a machine with Slack.
+title_patterns = ["*huddle*"]
+policy = "auto"
+policy_without_titles = "ask"
+
+[[apps]]
+id = "discord"
+name = "Discord"
+bundle_ids = ["com.hnc.Discord", "discord", "com.discordapp.Discord", "discord.exe"]
+# Voice channels are often not meetings.
+policy = "ask"
+
+[[apps]]
+id = "webex"
+name = "Webex"
+bundle_ids = ["Cisco-Systems.Spark", "com.cisco.webexmeetingsapp", "com.webex.meetingmanager", "webex", "com.cisco.Webex", "webex.exe", "CiscoCollabHost.exe", "WebexHost.exe", "ptoneclk.exe"]
+policy = "auto"

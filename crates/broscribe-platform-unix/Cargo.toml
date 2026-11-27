@@ -1,0 +1,18 @@
+[package]
+name = "broscribe-platform-unix"
+description = "BroScribe Unix socket transport for the daemon protocol: socket paths, single instance, framing, peer check, client"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+libc.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

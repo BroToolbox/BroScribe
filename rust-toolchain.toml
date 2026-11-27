@@ -1,0 +1,6 @@
+[toolchain]
+# Rust 1.100 enforces the three-day registry age policy.
+# Cargo.lock still requires scripts/check-publish-age.py before commit.
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

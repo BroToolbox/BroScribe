@@ -1,0 +1,190 @@
+name: Refresh the stable update envelope
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_missing_baseline:
+        description: Bootstrap an unsigned release after manually verifying its assets
+        type: boolean
+        default: false
+  schedule:
+    - cron: '21 9 1 * *'
+
+permissions: {}
+concurrency:
+  group: refresh-stable-update
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: "1.100.0"
+  RUSTUP_AUTO_INSTALL: "0"
+  CARGO_INCREMENTAL: "0"
+  PYTHONUTF8: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  refresh:
+    if: github.repository == 'BroToolbox/BroScribe' && (github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch)
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact commit
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          git init --quiet .
+          git config core.autocrlf false
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+          git log -1 --format='checked out %H'
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          if [[ "$channel" != "$RUST_TOOLCHAIN" ]]; then
+            echo "rust-toolchain.toml pins ${channel}; the workflow expects ${RUST_TOOLCHAIN}" >&2
+            exit 1
+          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustc --version | grep -F "rustc ${RUST_TOOLCHAIN} "
+          cargo --version | grep -F "cargo ${RUST_TOOLCHAIN} "
+
+      - name: Qualify the latest stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: BroToolbox/BroScribe
+          HAS_UPDATE_KEY: ${{ secrets.UPDATE_SIGNING_KEY != '' }}
+          ALLOW_MISSING_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_missing_baseline }}
+        run: |
+          set -euo pipefail
+          release="$RUNNER_TEMP/refresh-release.json"
+          gh api "repos/$GH_REPO/releases/latest" > "$release"
+          if [[ "$HAS_UPDATE_KEY" != true ]]; then
+            echo 'UPDATE_SIGNING_KEY is required to refresh the latest stable release.' >&2
+            exit 1
+          fi
+          options=(--event "$GITHUB_EVENT_NAME")
+          if [[ "$ALLOW_MISSING_BASELINE" == true ]]; then
+            options+=(--allow-missing-baseline)
+          fi
+          python3 scripts/refresh-update.py "$release" "${options[@]}" > "$RUNNER_TEMP/refresh-assets"
+
+      - name: Build a signing CLI from the trusted checkout
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/broscribe-refresh-target
+        run: |
+          set -euo pipefail
+          third_party/sherpa-onnx/fetch.sh --target osx-arm64
+          scripts/build-target.sh aarch64-apple-darwin build --locked -p broscribe-cli --bin broscribe
+
+      - name: Authenticate the baseline and reverify the published artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: BroToolbox/BroScribe
+          ALLOW_MISSING_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_missing_baseline }}
+        run: |
+          set -euo pipefail
+          release="$RUNNER_TEMP/refresh-release.json"
+          downloads="$RUNNER_TEMP/refresh-downloads"
+          packages="$RUNNER_TEMP/refresh-packages"
+          cli="$RUNNER_TEMP/broscribe-refresh-target/aarch64-apple-darwin/debug/broscribe"
+          export BROSCRIBE_DATA_DIR="$RUNNER_TEMP/broscribe-refresh-profile"
+          tag="$(jq -er .tag_name "$release")"
+          mkdir -- "$downloads"
+          args=()
+          while IFS= read -r asset; do
+            args+=(--pattern "$asset")
+          done < "$RUNNER_TEMP/refresh-assets"
+          gh release download "$tag" "${args[@]}" --dir "$downloads"
+          options=(--event "$GITHUB_EVENT_NAME")
+          if [[ "$ALLOW_MISSING_BASELINE" == true ]]; then
+            options+=(--allow-missing-baseline)
+          fi
+          # Also checks a notarized release's disk image (signer, team, stapling,
+          # Gatekeeper and an app identical to the authenticated ZIP).
+          python3 scripts/refresh-update.py "$release" "${options[@]}" --cli "$cli" \
+            --downloads "$downloads" --packages "$packages" --out "$RUNNER_TEMP/broscribe-manifest.json"
+          shopt -s nullglob
+          macos=("$packages"/macos-arm64*/*.zip)
+          [[ ${#macos[@]} == 1 ]]
+          native=(--codesign)
+          if [[ "${macos[0]}" != *-adhoc.zip ]]; then
+            native+=(--require-stapled)
+          fi
+          python3 scripts/verify-macos-artifact.py "${macos[0]}" \
+            --provenance "${macos[0]%.zip}.provenance.json" --require-complete-licences "${native[@]}"
+
+      - name: Sign and verify the update envelope
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$UPDATE_SIGNING_KEY" ]]; then
+            echo 'UPDATE_SIGNING_KEY disappeared before signing.' >&2
+            exit 1
+          fi
+          [[ "$GITHUB_REPOSITORY" == BroToolbox/BroScribe ]]
+          umask 077
+          work="$(mktemp -d "$RUNNER_TEMP/broscribe-update.XXXXXX")"
+          trap 'rm -rf -- "$work"' EXIT
+          python3 - "$work/seed" <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+          import sys
+
+          try:
+              key = "".join(os.environ["UPDATE_SIGNING_KEY"].split())
+              seed = base64.b64decode(key, validate=True)
+          except (binascii.Error, ValueError):
+              raise SystemExit("UPDATE_SIGNING_KEY must be a base64 Ed25519 seed.") from None
+          if len(seed) != 32:
+              raise SystemExit("UPDATE_SIGNING_KEY must decode to 32 bytes.")
+          with Path(sys.argv[1]).open("xb") as output:
+              output.write(seed)
+          PY
+          unset UPDATE_SIGNING_KEY
+          export BROSCRIBE_DATA_DIR="$work/profile"
+          cli="$RUNNER_TEMP/broscribe-refresh-target/aarch64-apple-darwin/debug/broscribe"
+          "$cli" update sign-manifest --key-file "$work/seed" --manifest-stdin \
+            < "$RUNNER_TEMP/broscribe-manifest.json" > "$work/envelope"
+          rm -f -- "$work/seed"
+          "$cli" update verify-manifest --envelope-stdin < "$work/envelope"
+          mv -- "$work/envelope" "$RUNNER_TEMP/broscribe-update.json"
+
+      - name: Replace the envelope on the verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: BroToolbox/BroScribe
+          ALLOW_MISSING_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_missing_baseline }}
+        run: |
+          set -euo pipefail
+          release="$RUNNER_TEMP/refresh-release.json"
+          snapshot='{id, tag_name, draft, prerelease, published_at, assets: ([.assets[] | {id, name, size, digest}] | sort_by(.name))}'
+          latest="$(gh api "repos/$GH_REPO/releases/latest" | jq -cS "$snapshot")"
+          if [[ "$latest" != "$(jq -cS "$snapshot" "$release")" ]]; then
+            echo 'The latest release or its assets changed during verification. Run the refresh again.' >&2
+            exit 1
+          fi
+          options=(--event "$GITHUB_EVENT_NAME")
+          if [[ "$ALLOW_MISSING_BASELINE" == true ]]; then
+            options+=(--allow-missing-baseline)
+          fi
+          cli="$RUNNER_TEMP/broscribe-refresh-target/aarch64-apple-darwin/debug/broscribe"
+          export BROSCRIBE_DATA_DIR="$RUNNER_TEMP/broscribe-refresh-profile"
+          python3 scripts/refresh-update.py "$release" "${options[@]}" --cli "$cli" \
+            --downloads "$RUNNER_TEMP/refresh-downloads" --publish "$RUNNER_TEMP/broscribe-update.json"

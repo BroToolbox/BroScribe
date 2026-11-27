@@ -1,0 +1,60 @@
+[package]
+name = "broscribe-app"
+description = "The BroScribe desktop app (GPUI)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "broscribe-app"
+path = "src/main.rs"
+
+[dependencies]
+broscribe-core.workspace = true
+broscribe-integrations.workspace = true
+broscribe-platform.workspace = true
+broscribe-platform-native.workspace = true
+broscribe-readers.workspace = true
+broscribe-ipc.workspace = true
+chrono.workspace = true
+clap.workspace = true
+futures.workspace = true
+gpui.workspace = true
+# The X11 window icon: GPUI takes it as an `image::RgbaImage` (already
+# locked through GPUI, which enables its PNG decoder).
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+# Splits template results into the Markdown blocks the meeting view draws
+# as named nodes (`markdown::to_mdast`, CommonMark + GFM, math off). Already
+# locked through gpui-base, whose own `parse_markdown` forces math on and
+# drops unknown inline HTML (catalog D32); MIT.
+markdown = "=1.0.0"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+# Turns on test-support in GPUI, the platform crate, gpui-base and
+# gpui-component together.
+gpui = { workspace = true, features = ["test-support"] }
+# Regenerates assets/brand from its sources (examples/render_brand.rs).
+resvg.workspace = true
+# The queue worker runs the speaker recheck in GPUI tests (never in the app).
+broscribe-models.workspace = true
+broscribe-pipeline.workspace = true
+
+# The motion source test (ui.rs) parses the app's sources to leave out
+# test-only code and match on the rest's syntax tree; the versions GPUI's proc
+# macros already lock (no new crate). Span locations give each finding its line.
+proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"] }
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit", "visit-mut"] }
+
+[lints]
+workspace = true

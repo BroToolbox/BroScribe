@@ -1,0 +1,163 @@
+# Licences of the prebuilt static libraries sherpa-onnx-sys links into BroScribe
+# executables (SHERPA_ONNX_STATIC_LIBS in sherpa-onnx-sys 2.0.1's build.rs), read
+# by scripts/third-party-notices.py. A linked library without an entry fails the
+# bundle; an entry whose `verified_archives` does not name the archive the
+# libraries were unpacked from (lib-*/.verified) leaves the inventory incomplete.
+#
+# The pinned archives ship no licence files. Each entry was reviewed on
+# 2026-11-17 from primary sources:
+#   * which code each library contains: `ar -t` and `nm` of the libraries
+#     unpacked from sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2 (pins.sh);
+#   * which upstream version was built: sherpa-onnx v2.0.1's cmake/*.cmake
+#     (https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.1/cmake) and the cmake
+#     files of the subprojects it fetches, each pinned there by URL and SHA-256;
+#   * the licence texts: copied byte for byte from those upstream tags/commits
+#     into licenses/ (sha256 below).
+# Obligations for every component are attribution only (ship the notices and
+# licence texts, which THIRD_PARTY_NOTICES.txt does). MPL-2.0 (Eigen, header
+# code compiled in unmodified) additionally requires telling recipients where
+# the Source Code Form is available; the evidence names the exact source URL.
+# All licences are permissive or file-level (MPL-2.0) and compatible with
+# distributing BroScribe under Apache-2.0. macOS was reviewed on 2026-11-17;
+# Linux arm64/x64 and Windows x64 archive contents on 2026-11-18. LLVM archive
+# member/symbol metadata matches the same pinned sherpa component sources.
+# Linux and Windows ONNX Runtime were additionally compared byte-for-byte
+# with their target-specific CMake-pinned upstream archives. The already
+# pinned ORT notices cover their additional BSD-2-Clause cpuinfo code.
+# This covers these archives, not a final Windows executable's toolchain
+# CRT/STL redistribution terms or its still-unverified MSVC runtime linkage.
+# Linux libstdc++ template instantiations carry the GCC Runtime Library
+# Exception, with no notice obligation; they are toolchain header code.
+
+[[component]]
+library = "sherpa-onnx-c-api"
+project = "k2-fsa/sherpa-onnx v2.0.1 (C API), with nlohmann/json v3.12.0 headers"
+license = "Apache-2.0 AND MIT"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Member c-api.cc.o; defined symbols in namespaces sherpa_onnx and nlohmann. Licences: https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.1/LICENSE, https://github.com/nlohmann/json/blob/v3.12.0/LICENSE.MIT (json pinned in cmake/json.cmake, SHA256 4b92eb0c…0187)."
+texts = [
+  { file = "licenses/sherpa-onnx-v2.0.1-LICENSE.txt", sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" },
+  { file = "licenses/nlohmann-json-v3.12.0-LICENSE.MIT.txt", sha256 = "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603" },
+]
+
+[[component]]
+library = "sherpa-onnx-core"
+project = "k2-fsa/sherpa-onnx v2.0.1, with header code from OpenFst, kaldi-native-fbank, kaldi-decoder, nlohmann/json, Eigen, hclust-cpp (fastcluster), onnxruntime C++ API, simple-sentencepiece (darts-clone, ThreadPool)"
+license = "Apache-2.0 AND MIT AND MPL-2.0 AND BSD-2-Clause AND Zlib"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "230 members; defined symbols in namespaces sherpa_onnx, fst, knf, kaldi_decoder (Apache-2.0), nlohmann and Ort (MIT), Eigen dense templates (MPL-2.0; Eigen 5.0.1 per cmake/eigen.cmake, source https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz), fastclustercpp (hclust-cpp tag 2026-02-25, BSD-2-Clause), Darts (darts-clone via simple-sentencepiece v0.7 darts.h, BSD-2-Clause) and ThreadPool (simple-sentencepiece v0.7 threadpool.h, Zlib). fast-clustering.cc includes fastcluster-all-in-one.h and Eigen/Dense."
+texts = [
+  { file = "licenses/sherpa-onnx-v2.0.1-LICENSE.txt", sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" },
+  { file = "licenses/openfst-v1.8.5-2026-07-09-COPYING.txt", sha256 = "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b" },
+  { file = "licenses/nlohmann-json-v3.12.0-LICENSE.MIT.txt", sha256 = "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603" },
+  { file = "licenses/onnxruntime-v1.28.2-LICENSE.txt", sha256 = "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
+  { file = "licenses/eigen-5.0.1-COPYING.README.txt", sha256 = "db640ff2bd90c6abd6a4d3fbb351e0ee4d555417cf840492054d1cbb2ea85644" },
+  { file = "licenses/eigen-5.0.1-COPYING.MPL2.txt", sha256 = "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172" },
+  { file = "licenses/eigen-5.0.1-COPYING.BSD.txt", sha256 = "51928dce36213c5333ba3172e847d735d4c6e9b7ff2722a326c49067155b82eb" },
+  { file = "licenses/eigen-5.0.1-COPYING.APACHE.txt", sha256 = "03379001a7b12a2ec997a25554247d985270b353c10d5bafee9ac8d6519820b7" },
+  { file = "licenses/eigen-5.0.1-COPYING.MINPACK.txt", sha256 = "c87b7f8ee88f6195e91743820c00354833583aef091b72e2d4a49c8e28e798a0" },
+  { file = "licenses/hclust-cpp-2026-02-25-LICENSE.txt", sha256 = "e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882" },
+  { file = "licenses/simple-sentencepiece-v0.7-darts.h-licence.txt", sha256 = "0ea58b484f07096cc1d43122caf2c34909040b8747ad46cbfe1942b165f40f49" },
+  { file = "licenses/simple-sentencepiece-v0.7-threadpool.h-licence.txt", sha256 = "ccbda6990c305d81b9027656d7a69f88caa9b3c1925ddd1ce5dd97451b9aeb1d" },
+]
+
+[[component]]
+library = "sherpa-onnx-kaldifst-core"
+project = "k2-fsa/kaldifst v1.8.0 (renamed by sherpa-onnx), with OpenFst headers"
+license = "Apache-2.0"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Members context-fst.cc.o … text-utils.cc.o; namespaces kaldifst and fst. sherpa-onnx cmake/kaldi-decoder.cmake renames kaldifst_core to sherpa-onnx-kaldifst-core; kaldi-decoder v0.3.0 cmake/kaldifst.cmake pins https://github.com/k2-fsa/kaldifst/archive/refs/tags/v1.8.0.tar.gz (SHA256 3f247b7e…40b3). Licence: https://github.com/k2-fsa/kaldifst/blob/v1.8.0/LICENSE."
+texts = [
+  { file = "licenses/kaldifst-v1.8.0-LICENSE.txt", sha256 = "a682d6efd1ee5dee08a8e405c233c2c198ea70ae0718129daa83ab58cfe31c5d" },
+  { file = "licenses/openfst-v1.8.5-2026-07-09-COPYING.txt", sha256 = "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b" },
+]
+
+[[component]]
+library = "sherpa-onnx-fstfar"
+project = "OpenFst far extension, csukuangfj/openfst v1.8.5-2026-07-09"
+license = "Apache-2.0"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Namespace fst only. sherpa-onnx v2.0.1 cmake/openfst.cmake pins https://github.com/csukuangfj/openfst/archive/refs/tags/v1.8.5-2026-07-09.tar.gz (SHA256 2ff712a3…8c0e). Its COPYING is the Apache-2.0 notice; the full Apache-2.0 text is k2-fsa/sherpa-onnx's LICENSE (identical standard text)."
+texts = [
+  { file = "licenses/openfst-v1.8.5-2026-07-09-COPYING.txt", sha256 = "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b" },
+  { file = "licenses/sherpa-onnx-v2.0.1-LICENSE.txt", sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" },
+]
+
+[[component]]
+library = "sherpa-onnx-fst"
+project = "OpenFst, csukuangfj/openfst v1.8.5-2026-07-09"
+license = "Apache-2.0"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Namespace fst only (11 members). Same pin and licence as sherpa-onnx-fstfar."
+texts = [
+  { file = "licenses/openfst-v1.8.5-2026-07-09-COPYING.txt", sha256 = "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b" },
+  { file = "licenses/sherpa-onnx-v2.0.1-LICENSE.txt", sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" },
+]
+
+[[component]]
+library = "kaldi-decoder-core"
+project = "k2-fsa/kaldi-decoder v0.3.0, with OpenFst, kaldifst and Eigen headers"
+license = "Apache-2.0 AND MPL-2.0"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Namespaces kaldi_decoder, kaldifst, fst (Apache-2.0) and Eigen dense templates (MPL-2.0). sherpa-onnx cmake/kaldi-decoder.cmake pins https://github.com/k2-fsa/kaldi-decoder/archive/refs/tags/v0.3.0.tar.gz (SHA256 b9f34cfb…a1b0); its include(eigen) resolves to sherpa-onnx's cmake/eigen.cmake (Eigen 5.0.1, https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz) because sherpa-onnx's cmake folder is first on CMAKE_MODULE_PATH."
+texts = [
+  { file = "licenses/kaldi-decoder-v0.3.0-LICENSE.txt", sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" },
+  { file = "licenses/kaldifst-v1.8.0-LICENSE.txt", sha256 = "a682d6efd1ee5dee08a8e405c233c2c198ea70ae0718129daa83ab58cfe31c5d" },
+  { file = "licenses/openfst-v1.8.5-2026-07-09-COPYING.txt", sha256 = "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b" },
+  { file = "licenses/eigen-5.0.1-COPYING.README.txt", sha256 = "db640ff2bd90c6abd6a4d3fbb351e0ee4d555417cf840492054d1cbb2ea85644" },
+  { file = "licenses/eigen-5.0.1-COPYING.MPL2.txt", sha256 = "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172" },
+]
+
+[[component]]
+library = "kaldi-native-fbank-core"
+project = "csukuangfj/kaldi-native-fbank v1.22.4"
+license = "Apache-2.0"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Namespace knf; kiss_fft functions are only referenced (undefined), defined in kissfft-float. sherpa-onnx cmake/kaldi-native-fbank.cmake pins https://github.com/csukuangfj/kaldi-native-fbank/archive/refs/tags/v1.22.4.tar.gz (SHA256 257fea63…5fae). Licence: https://github.com/csukuangfj/kaldi-native-fbank/blob/v1.22.4/LICENSE."
+texts = [
+  { file = "licenses/kaldi-native-fbank-v1.22.4-LICENSE.txt", sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" },
+]
+
+[[component]]
+library = "kissfft-float"
+project = "mborgerding/kissfft at febd4caeed32e33ad8b2e0bb5ea77542c40f18ec"
+license = "BSD-3-Clause"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Members kiss_fft.c.o, kfc.c.o, kiss_fftnd.c.o, kiss_fftndr.c.o, kiss_fftr.c.o. kaldi-native-fbank v1.22.4 cmake/kissfft.cmake pins https://github.com/mborgerding/kissfft/archive/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec.zip (SHA256 497103e6…13fd); its COPYING states SPDX BSD-3-Clause."
+texts = [
+  { file = "licenses/kissfft-febd4ca-COPYING.txt", sha256 = "a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6" },
+  { file = "licenses/kissfft-febd4ca-LICENSES-BSD-3-Clause.txt", sha256 = "4d6bcab46f27d6d0c878e8305d4bdcfe040d52bf6656b9771f04c9fb9902c0ed" },
+]
+
+[[component]]
+library = "onnxruntime"
+project = "microsoft/onnxruntime v1.28.2 (static build from csukuangfj/onnxruntime-libs v1.28.2)"
+license = "MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND MPL-2.0"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "sherpa-onnx v2.0.1 pins onnxruntime-libs 1.28.2, built from microsoft/onnxruntime commit 33ca9628233dc8f002435e868d4c2e9f82766ca1; all targets embed 1.28.2 and git-commit-id 33ca96282. macOS cmake/onnxruntime-osx-arm64-static.cmake pins onnxruntime-osx-arm64-static_lib-1.28.2.zip (SHA256 bf6e35dc…38ab): 766 of 771 shared object members match, with cpuinfo omitted from the sherpa copy. Linux cmake/onnxruntime-linux-aarch64-static.cmake and onnxruntime-linux-x86_64-static.cmake pin onnxruntime-linux-aarch64-static_lib-1.28.2-glibc2_17.zip (SHA256 fba13fa6…33b3) and onnxruntime-linux-x64-static_lib-1.28.2-glibc2_17.zip (SHA256 2dada924…794e). Windows cmake/onnxruntime-win-x64-static.cmake pins onnxruntime-win-x64-static_lib-MT-Release-1.28.2.tar.bz2 (SHA256 77c6cc2a…8881). Each Linux/Windows ORT library is byte-identical to its re-verified target-specific upstream pin. Linux and Windows include pytorch/cpuinfo 4628dc060ce4e82345dc166bbac875609db4ff69 (BSD-2-Clause). Windows additionally has microsoft/wil (MIT); SafeInt (MIT) is defined on every target and HowardHinnant/date (MIT) on macOS and Linux. Defined symbols identify ORT/MLAS/Ort, onnx, absl, flatbuffers, protobuf, re2, Eigen, gsl and nlohmann. All are covered by the pinned LICENSE and ThirdPartyNotices.txt, reconfirmed byte-identical at the exact ORT commit through Software Heritage and a Git object-verified mirror while the original repository returned 404. ORT's unmodified MPL-2.0 Eigen Source Code Form is https://github.com/eigen-mirror/eigen/archive/1d8b82b0740839c0de7f1242a3585e3390ff5f33/eigen-1d8b82b0740839c0de7f1242a3585e3390ff5f33.zip; this is separate from sherpa's Eigen 5.0.1. No additional GPL/LGPL third-party library was found in the reviewed constituent set; Linux toolchain template code is covered by the GCC Runtime Library Exception. Windows toolchain CRT redistribution and final runtime linkage are separate from these archives and remain unverified."
+texts = [
+  { file = "licenses/onnxruntime-v1.28.2-LICENSE.txt", sha256 = "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
+  { file = "licenses/onnxruntime-v1.28.2-ThirdPartyNotices.txt", sha256 = "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2" },
+]
+
+[[component]]
+library = "ssentencepiece_core"
+project = "pkufool/simple-sentencepiece v0.7, including darts-clone (darts.h) and ThreadPool (threadpool.h)"
+license = "Apache-2.0 AND BSD-2-Clause AND Zlib"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Member ssentencepiece.cc.o; namespaces ssentencepiece, Darts and class ThreadPool. sherpa-onnx cmake/simple-sentencepiece.cmake pins https://github.com/pkufool/simple-sentencepiece/archive/refs/tags/v0.7.tar.gz (SHA256 1748a822…75af). Licences: the repository LICENSE (Apache-2.0) and the licence comments of ssentencepiece/csrc/darts.h (BSD-2-Clause, Susumu Yata) and threadpool.h (Zlib, Jakob Progsch and Václav Zeman), extracted verbatim."
+texts = [
+  { file = "licenses/simple-sentencepiece-v0.7-LICENSE.txt", sha256 = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" },
+  { file = "licenses/simple-sentencepiece-v0.7-darts.h-licence.txt", sha256 = "0ea58b484f07096cc1d43122caf2c34909040b8747ad46cbfe1942b165f40f49" },
+  { file = "licenses/simple-sentencepiece-v0.7-threadpool.h-licence.txt", sha256 = "ccbda6990c305d81b9027656d7a69f88caa9b3c1925ddd1ce5dd97451b9aeb1d" },
+]
+
+[[component]]
+library = "utf8proc"
+project = "JuliaStrings/utf8proc v2.12.0"
+license = "MIT AND LicenseRef-utf8proc-Unicode-data"
+verified_archives = ["sherpa-onnx-v2.0.1-osx-arm64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-aarch64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2", "sherpa-onnx-v2.0.1-win-x64-static-MT-Release-lib.tar.bz2"]
+evidence = "Member utf8proc.c.o. sherpa-onnx cmake/utf8proc.cmake pins https://github.com/JuliaStrings/utf8proc/archive/refs/tags/v2.12.0.tar.gz (SHA256 f564011d…5111). LICENSE.md: MIT for utf8proc, plus the Unicode, Inc. copyright and permission notice (1991-2007) for the data in utf8proc_data.c, whose conditions are met by shipping the notice unmodified."
+texts = [
+  { file = "licenses/utf8proc-v2.12.0-LICENSE.md", sha256 = "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256" },
+]

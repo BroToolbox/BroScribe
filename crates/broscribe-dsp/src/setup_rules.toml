@@ -1,0 +1,66 @@
+# Audio setup detection rules (design §5). First match wins; every condition
+# present in a rule must hold. Name/data-source matches are case-insensitive
+# substrings. A user file with the same format is tried before this table.
+# `hybrid_room` has no device signature: it comes from a user rule or the
+# per-device-pair / per-meeting override in settings.
+version = 1
+fallback = "speakers_mic"
+
+[[rule]]
+setup = "in_person"
+note = "no remote meeting: everyone is in the room"
+remote_meeting = false
+
+[[rule]]
+setup = "bluetooth_call"
+note = "Bluetooth output in the narrowband call profile"
+output_transport = ["bluetooth", "bluetooth_le"]
+output_max_rate_hz = 16000
+
+[[rule]]
+setup = "bluetooth_call"
+note = "Bluetooth headset microphone (call profile)"
+input_transport = ["bluetooth", "bluetooth_le"]
+input_max_rate_hz = 16000
+
+# Speakerphones with built-in echo cancellation. Product names are matched
+# as reported by the device; *verify* each name against a real device.
+[[rule]]
+setup = "speakerphone_aec"
+note = "speakerphone with device echo cancellation"
+output_transport = ["usb", "bluetooth", "bluetooth_le"]
+output_name_contains = ["speakerphone", "insta360", "jabra speak", "poly sync", "emeet", "powerconf"]
+
+[[rule]]
+setup = "speakers_mic"
+note = "Bluetooth speaker"
+output_transport = ["bluetooth", "bluetooth_le"]
+output_name_contains = ["speaker", "soundbar", "soundlink", "homepod"]
+
+[[rule]]
+setup = "headphones"
+note = "headphones by name"
+output_name_contains = ["headphone", "headset", "airpods", "earpods", "buds", "earphone"]
+
+[[rule]]
+setup = "headphones"
+note = "built-in output switched to the headphone jack"
+output_transport = ["built_in"]
+output_data_source_contains = ["headphone"]
+
+[[rule]]
+setup = "headphones"
+note = "Bluetooth audio in the music profile (mic elsewhere)"
+output_transport = ["bluetooth", "bluetooth_le"]
+
+[[rule]]
+setup = "headphones"
+note = "USB headset: one device for input and output"
+input_transport = ["usb"]
+output_transport = ["usb"]
+same_device = true
+
+[[rule]]
+setup = "speakers_mic"
+note = "built-in, display or external speakers"
+output_transport = ["built_in", "hdmi", "display_port", "air_play", "usb", "thunderbolt", "pci", "fire_wire"]

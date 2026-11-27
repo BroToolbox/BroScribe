@@ -1,0 +1,26 @@
+// Compile with llvm-rc /fo agent.res agent.rc.
+LANGUAGE 9, 1
+
+1 VERSIONINFO
+FILEVERSION BRO_VERSION_MAJOR, BRO_VERSION_MINOR, BRO_VERSION_PATCH, 0
+PRODUCTVERSION BRO_VERSION_MAJOR, BRO_VERSION_MINOR, BRO_VERSION_PATCH, 0
+FILEFLAGSMASK 0x3fL
+FILEOS 0x00040004L
+FILETYPE 0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "BroScribe Agent"
+            VALUE "FileVersion", BRO_VERSION_TEXT
+            VALUE "ProductName", "BroScribe"
+            VALUE "ProductVersion", BRO_VERSION_TEXT
+            VALUE "OriginalFilename", "broscribed.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

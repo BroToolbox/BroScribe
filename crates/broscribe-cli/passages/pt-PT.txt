@@ -1,0 +1,3 @@
+Estou a configurar esta aplicação para ela reconhecer a minha voz durante as reuniões. Vou ler ao meu ritmo normal, como faço quando converso com outras pessoas. Uma gravação clara ajuda a aplicação a reconhecer como a minha voz soa no dia a dia. Se acabar este texto antes do tempo, vou ler outra vez até o contador marcar trinta segundos.
+---
+Esta é a minha voz, com o mesmo microfone. Leio ao meu ritmo normal e com o meu tom habitual. No fim, volto ao início e leio outra vez até a gravação parar.

@@ -1,0 +1,24 @@
+[package]
+name = "broscribe-capture"
+description = "BroScribe recorder: two-track capture, chunk journal, common timeline and final encode"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# Capture never depends on ML or UI crates (plan M4 §12.1).
+[dependencies]
+broscribe-core.workspace = true
+broscribe-platform.workspace = true
+broscribe-ipc.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,45 @@
+[package]
+name = "broscribe-platform-native"
+description = "Selects the BroScribe platform implementation for the current OS"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Platform selection and the portable daemon transport facade (`ipc`) on
+# every target. No model or inference crate: Metal is enabled only by the
+# macOS inference consumers (CLI and worker).
+broscribe-platform.workspace = true
+broscribe-core.workspace = true
+broscribe-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Async server side of the transport: Unix sockets or Windows named pipes
+# (`net`), termination signals and connection timeouts.
+tokio = { workspace = true, features = ["net", "io-util", "signal", "time", "rt"] }
+# Corporate TLS trust: the OS trust store's root certificates (Keychain,
+# Windows certificate store, OpenSSL locations) as DER, behind the platform
+# trust-store factory; consumers still verify every connection with rustls.
+# The version already locked through hyper-rustls; Apache-2.0 OR ISC OR MIT.
+rustls-native-certs = "0.8.5"
+
+[target.'cfg(unix)'.dependencies]
+broscribe-platform-unix.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+broscribe-platform-macos.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "time", "net", "io-util"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+broscribe-platform-windows = { path = "../broscribe-platform-windows" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+broscribe-platform-linux = { path = "../broscribe-platform-linux" }
+
+[lints]
+workspace = true

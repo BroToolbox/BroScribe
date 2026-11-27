@@ -1,0 +1,224 @@
+# README screenshots. Not a required check (docs/release.md).
+#
+# `capture` builds the app in the pinned Linux desktop image and photographs
+# four screens of an invented library (scripts/linux-desktop/screenshots.sh)
+# with a read-only token. Pull requests that touch the UI get the images as
+# an artifact for review. On `main`, `publish` replaces the generated
+# `screenshots` branch when the pixels changed; the README links to it.
+#
+# Supply-chain rules (as ci.yml and release.yml):
+# - Checkout is a plain `git fetch` of the exact commit; the job token reaches
+#   git only through masked GIT_CONFIG_* environment variables, never argv or
+#   git config. No caches.
+# - The only actions are GitHub's upload-artifact and download-artifact, pinned
+#   by full commit SHA (the same pins as release.yml).
+# - Only `publish` has `contents: write`. It runs only for pushes and manual
+#   runs on main in this repository, validates the artifact as data and never
+#   runs code from it.
+# - A failed capture uploads its logs and AT-SPI dumps (invented data only)
+#   as a separate short-lived artifact; `publish` never downloads it.
+name: screenshots
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'third_party/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - 'scripts/linux-desktop/**'
+      - 'scripts/docker-linux-test.sh'
+      - 'docs/redesign/**'
+      - '.github/workflows/screenshots.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+# main is serialized and never cancelled; every other ref (pull requests,
+# manual runs elsewhere) has its own group and cancels its older runs.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'screenshots-main' || format('screenshots-ref-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: never
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  capture:
+    name: Capture README screenshots
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact commit
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          git init --quiet .
+          git config core.autocrlf false
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+          git log -1 --format='checked out %H'
+
+      - name: Verify the native arm64 container host
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == aarch64 ]] || { echo "expected aarch64, got $(uname -m)" >&2; exit 1; }
+          docker version --format '{{.Server.Version}}'
+
+      - name: Capture the screenshots from invented data
+        env:
+          CARGO_BUILD_JOBS: "2"
+          BROSCRIBE_SHOT_COMMIT: ${{ github.sha }}
+        run: scripts/linux-desktop/screenshots.sh "$RUNNER_TEMP/screenshots" "$RUNNER_TEMP/screenshots-diagnostics"
+
+      - name: Upload the screenshots
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: screenshots
+          path: |
+            ${{ runner.temp }}/screenshots/library.png
+            ${{ runner.temp }}/screenshots/meeting.png
+            ${{ runner.temp }}/screenshots/meeting-dark.png
+            ${{ runner.temp }}/screenshots/recording.png
+            ${{ runner.temp }}/screenshots/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: screenshots-diagnostics
+          path: ${{ runner.temp }}/screenshots-diagnostics
+          if-no-files-found: ignore
+          retention-days: 3
+
+  publish:
+    name: Publish the screenshots branch
+    needs: capture
+    if: github.repository == 'BroToolbox/BroScribe' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact commit
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          git init --quiet .
+          git config core.autocrlf false
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+          git log -1 --format='checked out %H'
+
+      - name: Download this run's screenshots
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/screenshots-artifact
+
+      - name: Validate the artifact as data
+        run: python3 scripts/linux-desktop/shots.py validate "$RUNNER_TEMP/screenshots-artifact" --commit "$GITHUB_SHA"
+
+      - name: Replace the screenshots branch when the pixels changed
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          unset PUSH_TOKEN
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          artifact="$RUNNER_TEMP/screenshots-artifact"
+          shots=scripts/linux-desktop/shots.py
+
+          head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$head" != "$GITHUB_SHA" ]]; then
+            echo "main is now at ${head}; a newer run publishes its screenshots."
+            exit 0
+          fi
+          tip="$(git ls-remote origin refs/heads/screenshots | cut -f1)"
+          published="$RUNNER_TEMP/published-manifest.json"
+          rm -f "$published"
+          if [[ -n "$tip" ]]; then
+            git fetch --quiet --no-tags --depth=1 origin "$tip"
+            git show "$tip:manifest.json" > "$published" 2>/dev/null || rm -f "$published"
+          fi
+          published_commit="$(python3 "$shots" source-commit "$published")"
+          if [[ -n "$published_commit" ]]; then
+            if [[ "$published_commit" == "$GITHUB_SHA" ]]; then
+              echo "These screenshots are already published."
+              exit 0
+            fi
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --quiet --no-tags --unshallow origin "$GITHUB_SHA"
+            fi
+            # A fetch failure stops the job (set -e); only "not an ancestor"
+            # (status 1) lets it go on.
+            git fetch --quiet --no-tags origin "$published_commit"
+            ancestor=0
+            git merge-base --is-ancestor "$GITHUB_SHA" "$published_commit" || ancestor=$?
+            if ((ancestor == 0)); then
+              echo "The published screenshots come from ${published_commit}, which is newer."
+              exit 0
+            elif ((ancestor != 1)); then
+              echo "Could not compare ${GITHUB_SHA} with ${published_commit} (status ${ancestor})." >&2
+              exit 1
+            fi
+          fi
+          decision="$(python3 "$shots" decide "$artifact/manifest.json" "$published")"
+          if [[ "$decision" == unchanged ]]; then
+            echo "The screenshots have the published pixels; nothing to do."
+            exit 0
+          fi
+
+          branch="$RUNNER_TEMP/screenshots-branch"
+          git init --quiet "$branch"
+          for file in library.png meeting.png meeting-dark.png recording.png manifest.json; do
+            cp "$artifact/$file" "$branch/$file"
+          done
+          cat > "$branch/README.md" <<EOF
+          # Generated screenshots
+
+          The [screenshots workflow](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/.github/workflows/screenshots.yml)
+          writes this branch from invented data (scripts/linux-desktop/showcase.py) and
+          replaces it with a single commit whenever the pictures change. Do not edit it.
+
+          Source commit: ${GITHUB_SHA}
+          EOF
+          git -C "$branch" add --all
+          git -C "$branch" -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --quiet -m "Screenshots of ${GITHUB_SHA}"
+          git -C "$branch" push --quiet --force-with-lease="refs/heads/screenshots:${tip}" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/screenshots
+          echo "Published the screenshots of ${GITHUB_SHA}."

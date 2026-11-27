@@ -1,0 +1,153 @@
+[package]
+name = "broscribe-platform-macos"
+description = "BroScribe platform implementations for macOS"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+broscribe-platform.workspace = true
+libc.workspace = true
+tracing.workspace = true
+# Media decoder: container creation dates (`MediaInfo::created_at`).
+chrono.workspace = true
+# Daemon socket peer check (`PeerCredentials`, getpeereid).
+broscribe-platform-unix.workspace = true
+# Microphone input (Core Audio through cpal).
+cpal.workspace = true
+objc2.workspace = true
+block2 = "0.6.2"
+# Actionable local notifications on the app's GPUI loop.
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = [
+    "std", "block2", "UNUserNotificationCenter", "UNNotification",
+    "UNNotificationAction", "UNNotificationCategory", "UNNotificationContent",
+    "UNNotificationRequest", "UNNotificationResponse", "UNNotificationTrigger",
+    "UNNotificationSettings",
+] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+# Helper-owned system calendar: read-only event queries and the full-access
+# request. Only the classes used are enabled (no EventKitUI, AppKit colors,
+# Core Location or MapKit); EKTypes pulls in `bitflags` for its option sets.
+objc2-event-kit = { version = "=0.3.2", default-features = false, features = [
+    "std", "block2", "EKTypes", "EKObject", "EKEventStore", "EKCalendar",
+    "EKCalendarItem", "EKEvent", "EKParticipant", "EKSource",
+] }
+objc2-foundation = { workspace = true, features = [
+    "NSArray",
+    "NSUserDefaults",
+    "NSBundle",
+    "NSDate",
+    # `NSArray::iter` in the calendar adapter; without it this crate only
+    # compiled when another workspace crate enabled the feature.
+    "NSEnumerator",
+    "NSError",
+    "NSObject",
+    "NSString",
+    "NSURL",
+    # Recording overlay: screen-configuration observer on the main queue.
+    "NSGeometry",
+    "NSNotification",
+    "NSOperation",
+    "NSProcessInfo",
+    "NSFileManager",
+    # Media decoder: AVAssetReader output settings and options.
+    "NSDictionary",
+    "NSValue",
+    "block2",
+    # Status item glyph: the PNG bytes an NSImage is made from.
+    "NSData",
+] }
+# Status item (same version GPUI's macOS backend uses) and NSWorkspace.
+objc2-app-kit = { workspace = true, features = [
+    # Status item spoken name for VoiceOver (NSAccessibility::setAccessibilityLabel).
+    "NSAccessibilityProtocols",
+    # The accent colour focus and selection follow.
+    "block2",
+    "NSAppearance",
+    "NSColor",
+    "NSColorSpace",
+    "NSButton",
+    # Status item glyph: a template NSImage beside the review count.
+    "NSCell",
+    "NSImage",
+    "NSControl",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSView",
+    "NSWorkspace",
+    # Bundle ids of mic-using and window-owning processes (detection).
+    "NSRunningApplication",
+    "libc",
+    "objc2-core-foundation",
+    # Recording overlay: the panel's level, Spaces behaviour and placement.
+    "NSApplication",
+    "NSEvent",
+    "NSScreen",
+    "NSWindow",
+    # Live status and alert announcements (`NSAccessibilityAnnouncementRequestedNotification`).
+    "NSAccessibilityConstants",
+    # Increase Contrast and Reduce Transparency (`NSWorkspace` accessibility
+    # display options, ACC-32).
+    "NSAccessibility",
+] }
+# Recording overlay: the borrowed handle of the app's own panel.
+raw-window-handle.workspace = true
+# Playback: AVAudioPlayer for single-track files, AVPlayer (mixes every
+# enabled audio track) for multi-track ones. Media decoder: AVAssetReader
+# PCM output of an asset's audio tracks.
+objc2-avf-audio = { workspace = true, features = ["AVAudioPlayer", "AVAudioSettings"] }
+objc2-av-foundation = { workspace = true, features = [
+    "AVPlayer", "AVAssetWriter", "AVAssetWriterInput", "AVMediaFormat",
+    "AVMetadataItem", "AVMetadataIdentifiers", "objc2-core-media", "block2",
+    "AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetTrack",
+    # Track titles (`uiso/titl`) matched through `AVMetadataItem::commonKey`.
+    "AVMetadataFormat",
+] }
+objc2-core-media = { workspace = true, features = [
+    "CMTime", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer",
+    "objc2", "objc2-core-audio-types",
+    # Media decoder: sample counts and track time ranges.
+    "CMBase", "CMTimeRange",
+] }
+# Library watcher: FSEvents on a private dispatch queue.
+objc2-core-foundation = { workspace = true, features = [
+    "CFArray",
+    "CFString",
+    "CFDate",
+    "CFDictionary",
+    "CFNumber",
+    # Accessibility observers attach to the caller's run loop.
+    "CFRunLoop",
+    # Meeting readers: a web document's URL (call identity, plan H).
+    "CFURL",
+] }
+objc2-core-services = { workspace = true, features = ["FSEvents", "dispatch2"] }
+dispatch2.workspace = true
+# SecretStore: Keychain generic passwords.
+security-framework.workspace = true
+# Meeting detection: Core Audio process objects (mic usage) and the
+# CoreGraphics window list (owners; titles only with Screen Recording).
+objc2-core-audio = { workspace = true, features = ["AudioHardware", "HostTime", "objc2", "objc2-foundation", "objc2-core-audio-types"] }
+objc2-core-graphics = { workspace = true, features = ["CGWindow"] }
+# Meeting-app readers: AXUIElement snapshots and AXObserver notifications.
+objc2-application-services = { workspace = true, features = [
+    "AXError",
+    "AXUIElement",
+    "AXValue",
+    "HIServices",
+    "libc",
+] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+broscribe-readers = { workspace = true, features = ["conformance"] }
+futures.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

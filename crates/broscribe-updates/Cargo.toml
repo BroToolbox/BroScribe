@@ -1,0 +1,38 @@
+[package]
+name = "broscribe-updates"
+description = "BroScribe's signed updater: release envelope, download, staging, replacement and recovery"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# OS access only through the shared `UpdatePlatform` trait; never a native crate.
+broscribe-core.workspace = true
+broscribe-platform.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ureq.workspace = true
+# Ed25519 verification of the release manifest. Already locked; Apache-2.0 AND ISC.
+ring = "=0.17.14"
+# Release version ordering (MAJOR.MINOR.PATCH only). Already locked; MIT OR Apache-2.0.
+semver = "=1.0.28"
+# Release archives: reading Stored/Deflated entries only. Already locked; MIT.
+zip = { version = "=9.5.1", default-features = false, features = ["deflate"] }
+
+# Linux release artifacts use gzip-compressed tar, already locked.
+flate2 = "=1.1.11"
+tar.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# Secure seed-file opens use O_NOFOLLOW and O_NONBLOCK. Already locked.
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

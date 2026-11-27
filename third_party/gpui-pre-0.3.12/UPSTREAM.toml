@@ -1,0 +1,58 @@
+[upstream]
+name = "gpui-pre"
+version = "0.3.12"
+license = "Apache-2.0"
+archive = "https://static.crates.io/crates/gpui-pre/gpui-pre-0.3.12.crate"
+sha256 = "29db89613527079737f53752eab27fb65c9a7dd94979256c65a0e590c9fd34d8"
+# The archive matched the original Cargo.lock pin and extracted registry source.
+# That registry version passed the repository's three-day age check before import.
+omitted_files = ["Cargo.lock"] # Dependency lockfiles are unused; the root lock is authoritative.
+
+[patch]
+purpose = "Record real painted selector geometry in optimized test-support builds without enabling debug assertions."
+activation = "cfg(any(test, feature = 'test-support'))"
+files = ["src/elements/div.rs", "src/app/test_context.rs"]
+shipping_requirement = "test-support must remain absent from the normal shipping dependency graph."
+# Never patch ~/.cargo/registry: all callers resolve this audited local base.
+
+[patch.aria_live]
+purpose = "Expose StatefulInteractiveElement::aria_live(accesskit::Live) and write node.set_live(live) so Status and Alert elements expose live regions to AccessKit (U05 / ACC-01)."
+activation = "always"
+files = ["src/elements/div.rs"]
+
+[patch.aria_expanded]
+purpose = "Expose aria_expanded through InteractiveElement so GPUI Component buttons retain expanded and collapsed accessibility states when they replace bespoke disclosure buttons (U15 / SYS-02)."
+activation = "always"
+files = ["src/elements/div.rs"]
+
+[patch.can_select_mixed_files_and_dirs]
+purpose = "Allow TestAppContext to toggle TestPlatform::can_select_mixed_files_and_dirs so tests can exercise both mixed (macOS) and split (Windows/Linux) file pickers (U04 / LIB-01). The field and the toggle exist only under test-support; a bench-support-only TestPlatform still answers true, as upstream does."
+activation = "cfg(any(test, feature = 'test-support'))"
+files = ["src/platform/test/platform.rs", "src/app/test_context.rs"]
+
+[patch.test_window_decorations]
+purpose = "Let tests set the window system's answer for test windows (TestAppContext::set_window_system: decorations and supported window controls; simulate_window_maximized) and read the window manager requests a window made (TestAppContext::window_requests, TestWindowRequests: start_window_move, zoom, minimize, show_window_menu), which the test window records instead of panicking with unimplemented!(). Proves the title bar BroScribe draws under client-side decorations (U11 / SHL-03)."
+activation = "cfg(any(test, feature = 'test-support')) for the public API; the test platform itself is compiled only with test or test-support/bench-support"
+files = ["src/platform.rs", "src/platform/test.rs", "src/platform/test/platform.rs", "src/platform/test/window.rs", "src/app/test_context.rs"]
+shipping_requirement = "Test platform only: no change to any real platform window; test-support must remain absent from the normal shipping dependency graph."
+
+[patch.a11y_tree_for_tests]
+purpose = "Let a test build a window's real accessibility tree: Window::activate_a11y_for_tests marks assistive technology as connected (test windows never connect one), so Window::debug_a11y_tree_json returns the tree GPUI's node writer built for the next frame, with each node's parent, role and name (U08 / MTG-53, INS-01)."
+activation = "cfg(any(test, feature = 'test-support'))"
+files = ["src/window.rs", "src/window/a11y.rs"]
+
+[patch.a11y_ancestor_metadata]
+purpose = "Let a confirmation heading name and describe the existing AlertDialog host without adding a duplicate role or changing the pinned gpui-component (U18 / SYS-23)."
+activation = "always"
+files = ["src/window/a11y.rs"]
+
+[patch.native_menu_disabled_state]
+purpose = "Preserve explicit disabled flags during native menu auto-validation while keeping each item's action and accelerator (U27)."
+activation = "always"
+files = ["src/app.rs", "src/platform/app_menu.rs"]
+
+[verification]
+base_published_at = "2026-11-09T00:30:37Z"
+base_age_days_minimum = 3
+base_yanked = false
+evidence = "Unchanged crates.io sparse-index records from the Cargo cache; root age checker passed all 992 remaining registry packages."

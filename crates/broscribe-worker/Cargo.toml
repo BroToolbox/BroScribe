@@ -1,0 +1,30 @@
+[package]
+name = "broscribe-worker"
+description = "Isolated BroScribe queue and live inference worker"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+broscribe-core.workspace = true
+broscribe-ipc.workspace = true
+broscribe-platform.workspace = true
+broscribe-platform-native.workspace = true
+broscribe-models.workspace = true
+broscribe-pipeline.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+# The worker runs queue and live inference: whisper.cpp's Metal backend on
+# macOS only; Linux and Windows build the CPU backend.
+[target.'cfg(target_os = "macos")'.dependencies]
+broscribe-models = { workspace = true, features = ["metal"] }
+
+[dev-dependencies]
+broscribe-capture.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,67 @@
+# Candidate structural anchors only. Owner must verify these in a synthetic call.
+id = "meet-chrome"
+# macOS bundle ids, Linux PipeWire application ids / binary names and Windows
+# executable file names (detect.toml identities), matched case-insensitively.
+bundle_ids = [
+    "com.google.Chrome", "com.google.Chrome.app.*",
+    "chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+    "org.chromium.Chromium", "chrome.exe",
+]
+verified = false
+structural_verified = false
+manual_accessibility = true
+
+[self_labels]
+en = ["You", "Me"]
+pt = ["Você", "Eu"]
+es = ["Tú", "Yo"]
+fr = ["Vous", "Moi"]
+de = ["Du", "Ich"]
+
+[roster]
+items = 'AXGroup[description="Participants"] AXGroup[identifier^="participant-"]'
+[roster.name]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[roster.email]
+selector = 'AXStaticText[identifier="email"]'
+attribute = "value"
+
+[captions]
+items = 'AXGroup[description="Captions"] > AXGroup'
+[captions.id]
+attribute = "identifier"
+[captions.speaker]
+selector = 'AXStaticText'
+attribute = "value"
+index = 0
+[captions.text]
+selector = 'AXStaticText'
+attribute = "value"
+index = 1
+
+# Call state (plan H): candidates from Meet's public accessible names, to be
+# verified in a synthetic call. In call: the web content's Leave button. Post
+# call: the left-the-meeting heading together with its Rejoin button. Chat and
+# captions never match (static text, no heading, no button). Other locales
+# read as unknown. Each web area is read on its own, and a post-call page ends
+# only the call seen active in that same document element with the same
+# meeting code (another tab, an old page or a new document stays unknown).
+[call]
+active = [
+    'AXWebArea AXButton[description="Leave call"]',
+    'AXWebArea AXButton[description="Sair da chamada"]',
+]
+[call.context]
+scope = 'AXWebArea'
+origins = ["https://meet.google.com"]
+key = "aaa-aaaa-aaa"
+[[call.ended]]
+all = ['AXWebArea AXHeading[title="You left the meeting"]', 'AXWebArea AXButton[title="Rejoin"]']
+[[call.ended]]
+all = ['AXWebArea AXHeading > AXStaticText[value="You left the meeting"]', 'AXWebArea AXButton[title="Rejoin"]']
+[[call.ended]]
+all = ['AXWebArea AXHeading[title="Você saiu da reunião"]', 'AXWebArea AXButton[title="Participar novamente"]']
+[[call.ended]]
+all = ['AXWebArea AXHeading > AXStaticText[value="Você saiu da reunião"]', 'AXWebArea AXButton[title="Participar novamente"]']

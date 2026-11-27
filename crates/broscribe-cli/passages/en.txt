@@ -1,0 +1,3 @@
+I am setting up this app so it can know my voice in meetings. I am reading at my normal speed, just as I speak with other people. A clear recording helps the app hear how my voice sounds in daily life. If I finish this text early, I will read it again until the timer reaches thirty seconds.
+---
+This is my voice again, with the same microphone. I am reading at my usual pace, in my normal voice. When I reach the end, I start again from the beginning until the recording stops.
