@@ -918,7 +918,10 @@ async fn record_live_speakers_loading_is_reported_until_ready() {
         elapsed_ms: 1,
     });
     // Loading lines every 0.1 s for 2 s, past the 1.6 s within which a
-    // silent worker is killed: signs of life, so it is not killed.
+    // silent worker is killed: signs of life, so it is not killed. The
+    // window leaves room for slow hosted runners, where the twenty lines
+    // took 3.5 s; after ready the fixture sends heartbeats every 50 ms, so
+    // a longer window cannot show a restart.
     let fixture = TimingWorker::new();
     let worker = fixture.command(&[
         "speakers",
@@ -930,7 +933,7 @@ async fn record_live_speakers_loading_is_reported_until_ready() {
     let states = identity_states(
         worker,
         patient_settings(),
-        Duration::from_millis(3500),
+        Duration::from_millis(8000),
         Some(fixture),
     )
     .await;
