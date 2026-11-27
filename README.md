@@ -1,54 +1,112 @@
 # BroScribe
 
-BroScribe records your meetings and transcribes them on your computer. It helps
-you see who said what, summarize the meeting and search past conversations — in
-the desktop app, from the command line or through an AI assistant you connect.
+**Your meetings, recorded, transcribed and searchable — on your own computer.**
+
+BroScribe notices when a call starts and records it, or asks you first. Follow a
+live transcript while people talk. After the call, you get a transcript
+organized by speaker, and BroScribe can recognize voices you've named in earlier
+meetings. Turn on an AI provider and ask for a summary, decisions and action
+items. Search everything from the app, the command line or your AI assistant.
+Transcription runs on your computer, and BroScribe never uploads your audio.
 
 > **Status: in development.** The first release is being prepared and there are
 > no downloads yet. macOS is the most complete platform; Windows and Linux are
 > implemented but not yet verified on real desktops. You can
 > [build it from source](#build-from-source).
 
-## Screenshots
+![The BroScribe library: recent meetings beside the selected meeting's speakers, talking time and AI summary](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/library.png)
 
-![The Library: today's meetings beside the selected meeting's speakers, AI summary and decisions](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/library.png)
+## How it works
 
-![A meeting transcript with each line attributed to a named speaker](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/meeting.png)
+### 1. A call starts — BroScribe notices
 
-![The same transcript in dark mode](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/meeting-dark.png)
+Join a call in Teams, Zoom, Google Meet, Slack, Discord or Webex and BroScribe
+sees it from the app using your microphone. Depending on what you choose for each
+app, it starts recording right away, asks you first, or stays out of the way. By
+default Teams, Zoom and Webex record automatically and Discord asks first; Meet
+and Slack also ask unless BroScribe can read window titles (on macOS, the optional
+Screen Recording permission; on Linux, X11 only). You can also start a recording yourself — for an
+in-person meeting, for example — from the app, the menu bar or tray icon, or the
+command line.
+
+For an online call, BroScribe records two separate tracks: **you** (your
+microphone) and **everyone else** (the computer's sound). If you use speakers
+instead of headphones, it reduces their echo on your track before transcribing.
+
+### 2. Follow along live
 
 ![The recording controls in front of the main window: a paused recording with its live transcript](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/recording.png)
 
-*Current development build on Linux (XFCE/X11) with invented data.*
+The recording controls show a provisional transcript a short delay behind the
+conversation, and can suggest names for voices BroScribe already knows. Bookmark
+a moment, type a note, pause and resume, change the title or tags, or switch the
+language mid-meeting. On Windows and macOS 14 you can hide the controls from
+screen sharing (not available on macOS 15 or later, or on Linux), and an optional
+reminder helps you tell people they are being recorded.
 
-## What it does
+### 3. The call ends — BroScribe saves and transcribes it
 
-- **Records meetings**, by hand or when it notices a call in Teams, Zoom, Meet,
-  Slack, Discord or Webex, with a live side panel. By default, Teams, Zoom and
-  Webex calls are recorded automatically and Discord asks first; Meet and Slack
-  also ask unless BroScribe can read window titles (on macOS, the optional
-  Screen Recording permission). You can set each app to ask, automatic or off.
-  It also **imports** audio and video files.
-- **Transcribes on your machine** with local speech models. BroScribe never
-  uploads your audio.
-- **Helps identify speakers.** Name a voice once and BroScribe suggests that
-  person in later meetings (or names them automatically once matching is
-  calibrated). Matches it is unsure about go to a review queue, and you can
-  always correct them.
-- **Creates optional summaries** with topics, decisions and action items, using
-  an AI command-line tool you already have (such as Claude Code or Codex) or an
-  OpenAI-compatible server, including one you run locally such as Ollama or
-  LM Studio. This is off until you turn it on.
-- **Searches your transcripts** across meetings by word, speaker or tag.
-- **Works with your AI tools.** A CLI and an optional MCP server let assistants
-  such as Claude Code or Codex search, read and update your meetings.
+![A meeting transcript with each line attributed to a named speaker](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/meeting.png)
+
+When BroScribe detects that a call has ended, you have 10 seconds to choose
+**Keep recording** before it saves. By default, a recording you start yourself
+continues until you stop it. BroScribe then transcribes the recording on your computer with local speech
+models and works out who said what. In your first meetings speakers appear as
+*Speaker 1*, *Speaker 2*: name a voice once and BroScribe suggests that person in
+later meetings (or names them automatically once matching is calibrated), and
+anything it is unsure about goes to a review queue where you can confirm or
+correct it. Record your own voice during setup and BroScribe can recognize your
+lines on your microphone track and show them under your name.
+
+### 4. Summaries, decisions and search
+
+Turn on an AI provider and ask for a summary of any meeting, with topics,
+decisions and action items with owners and status (single imported files can be
+summarized automatically). Tell it what summaries should focus on, or run
+templates such as meeting notes, a follow-up e-mail or a BANT qualification.
+It works with AI command-line tools you already have (such as Claude Code or
+Codex) or any OpenAI-compatible server, including one running locally such as
+Ollama or LM Studio. This is off until you turn it on.
+
+Then find anything: search every transcript by words, speaker or tag, browse
+people with their meetings and talking time, and export a meeting as Markdown,
+text or JSON.
+
+## Highlights
+
+- **Private by design.** Recordings, transcripts and voice profiles are ordinary
+  files on your computer. Transcription and speaker recognition run
+  locally, and BroScribe never uploads your audio.
+- **Learns the people you meet.** A people gallery with every person's meetings,
+  talking time and voice samples. Group duplicate speakers, correct a line, forget
+  a voice.
+- **Knows your calendar.** Connect the calendars on your Mac to match
+  recordings with event titles and attendees; BroScribe only reads the calendars
+  you pick. Microsoft 365 and Google can also be connected with an OAuth
+  application you register yourself; those sign-ins are not yet validated against
+  real accounts.
+- **Imports what you already have.** Drop in audio or video files, a whole folder,
+  or a manifest with one track per participant.
+- **Works with your AI tools.** A full command-line interface and an optional
+  MCP server (off until you enable it) let assistants such as Claude Code or
+  Codex search, read and update your meetings and control recording.
+- **A native desktop app.** Built in Rust with GPUI for macOS, Windows and
+  Linux, with light and dark themes, adjustable text size, support for the
+  system's increased-contrast setting, labels for screen readers, a menu bar or
+  tray icon and notifications.
+
+![The same transcript in dark mode](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/meeting-dark.png)
+
+*Screenshots: current development build on Linux (XFCE/X11) with invented data,
+updated by CI when the interface changes on `main`.*
 
 ## Privacy
 
-- Recordings, transcripts and voice profiles are ordinary files on your
-  computer: in a library folder you choose (default `~/BroScribe`) and
-  BroScribe's own data and cache folders. Protect them with your system's disk encryption.
-- Transcription and speaker recognition run locally.
+- Recordings, transcripts and voice profiles live in a library folder you choose
+  (default `~/BroScribe`) and in BroScribe's own data and cache folders. Protect
+  them with your system's disk encryption.
+- You choose how long to keep audio: forever, deleted after a number of days, or
+  deleted as soon as the transcript is done. Transcripts and notes stay.
 - AI providers are **off by default** and need your consent one by one. An
   enabled summary provider receives transcript text, notes, bookmarks and your
   instructions. Once you enable a summary provider, single imported files are
@@ -94,7 +152,8 @@ You need Rust (through rustup; the repository pins the version), CMake and the
 native prerequisites for your system. The
 [installation guide](docs/install.md) has the prerequisites and build steps for
 each platform, and [CONTRIBUTING.md](CONTRIBUTING.md) explains how to run the
-tests.
+tests. On first launch, a setup assistant walks you through recording permissions,
+downloading the local speech models and recording your voice.
 
 ## Command line and AI tools
 
@@ -105,19 +164,22 @@ broscribe search "budget" --person "Iris"    # who said what, and when
 broscribe mcp enable                         # let your AI tools use BroScribe
 ```
 
-`broscribe --help` lists every command. On macOS, run
+`broscribe --help` lists every command; add `--json` for machine-readable output.
+On macOS, run
 `/Applications/BroScribe.app/Contents/MacOS/broscribe agents install` once; it
-links `broscribe` into `~/.local/bin`. The Linux installer creates the same
-link. On Windows, call `broscribe.exe` by its full path. The
+links `broscribe` into `~/.local/bin` and adds the BroScribe skill for the AI
+command-line tools it finds. The Linux installer creates the same link. On Windows, call `broscribe.exe` by its full path. The
 [installation guide](docs/install.md#command-line-and-mcp) covers CLI and MCP
 setup.
 
 ## Updates and uninstall
 
-BroScribe downloads and installs updates only after you confirm. To remove it,
-run `broscribe uninstall --dry-run` to preview the plan and `broscribe uninstall --yes`
-to apply it, or use **Settings → Privacy → Uninstall BroScribe…**. It keeps
-your library and data unless you choose to remove them.
+BroScribe downloads and installs signed updates only after you confirm, and keeps
+the previous version so you can roll back until you confirm the new one works.
+To remove it, run `broscribe uninstall --dry-run` to
+preview the plan and `broscribe uninstall --yes` to apply it, or use
+**Settings → Privacy → Uninstall BroScribe…**. It keeps your library and data
+unless you choose to remove them.
 
 Keep unrelated files outside the BroScribe installation folder: updates and
 uninstall refuse to replace or remove a folder that holds anything unexpected.
