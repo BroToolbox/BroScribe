@@ -9,6 +9,18 @@ the desktop app, from the command line or through an AI assistant you connect.
 > implemented but not yet verified on real desktops. You can
 > [build it from source](#build-from-source).
 
+## Screenshots
+
+![The Library: today's meetings beside the selected meeting's speakers, AI summary and decisions](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/library.png)
+
+![A meeting transcript with each line attributed to a named speaker](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/meeting.png)
+
+![The same transcript in dark mode](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/meeting-dark.png)
+
+![The recording controls in front of the main window: a paused recording with its live transcript](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/recording.png)
+
+*Current development build on Linux (XFCE/X11) with invented data.*
+
 ## What it does
 
 - **Records meetings**, by hand or when it notices a call in Teams, Zoom, Meet,
