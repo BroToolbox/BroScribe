@@ -4,7 +4,8 @@ This crate is empty on non-Linux targets. The workspace toolchain is Rust
 1.100.0 (`rust-toolchain.toml`). The whole workspace, this crate included,
 builds, passes native Clippy and passes its tests with
 `scripts/docker-linux-test.sh` in a pinned linux/arm64 Rust 1.100.0 container
-(docs/acceptance.md, Release 1 section). No hardware capture, credential-store
+(docs/acceptance.md). Hosted x64 and arm64 CI pass, and the 0.1.0 release
+shipped tar.gz archives for both. No hardware capture, credential-store
 operation, desktop notification, autostart installation or GUI interaction has
 been verified on a real Linux desktop. Compilation and
 the synthetic unit tests are not desktop runtime proof.

@@ -1,6 +1,6 @@
 # BroScribe design
 
-Status: draft v6 (2026-11-17). Licence: Apache-2.0.
+Status: v6 (2026-11-17), kept current with `main`; releases are listed in [CHANGELOG.md](../CHANGELOG.md). Licence: Apache-2.0.
 
 BroScribe is a local-first meeting memory.
 - It detects meetings and records them automatically, with a live side panel.
@@ -8,7 +8,7 @@ BroScribe is a local-first meeting memory.
 - After each meeting it produces an accurate transcript where every line carries a real name, without assigning speakers by hand every time.
 - A CLI and an MCP server let agents search meetings by subject, keywords, participants and tags.
 
-The whole application is Rust with a GPUI interface. macOS on Apple silicon is the supported build; Windows and Linux platform implementations are present, with build and runtime acceptance still *verify* (§13–§14). What has been proven, item by item, is recorded in [acceptance.md](acceptance.md); installation, upgrade and removal are in [install.md](install.md).
+The whole application is Rust with a GPUI interface. macOS on Apple silicon is the supported build. Every release also publishes Windows x64 and Linux x64/arm64 packages; their desktop runtime acceptance is still *verify* (§13–§14). What has been proven, item by item, is recorded in [acceptance.md](acceptance.md); installation, upgrade and removal are in [install.md](install.md).
 
 ## 1. Problem
 
@@ -1280,7 +1280,7 @@ Under the same dev-only `test-support` feature, `Window::activate_a11y_for_tests
 
 ## 14. Roadmap
 
-Status: M1–M7 are implemented. This describes delivered code, not unattended verification of permissions, third-party services or every platform runtime.
+Status: M1–M7 are implemented and shipped in 0.1.0. This describes delivered code, not unattended verification of permissions, third-party services or every platform runtime.
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -1291,6 +1291,8 @@ Status: M1–M7 are implemented. This describes delivered code, not unattended v
 | M5 | Session-scoped meeting-app readers and caption identity evidence | implemented; real live-call rules *verify* |
 | M6 | Microsoft 365 / Google integrations, read-only scopes and fenced refresh | implemented; sign-in/tenant consent *verify* |
 | M7 | Windows/Linux native traits, Unix transport, Windows pipe transport and target build tooling | implemented; compile scope in §13, desktop runtime *verify* |
+| Release 0.1.0 | First public release (2026-11-28): notarized macOS arm64 disk image and ZIP, unsigned Windows x64 ZIP, Linux x64 and arm64 tar.gz, signed update envelope on GitHub Releases | published; native desktop and update checks carried over in [acceptance.md](acceptance.md) |
+| Next release | Identify voices mode in Review, Speaking now dock in the recording window, model switching and deletion in Settings with new trusted models, removable Word list terms; first update delivered through the updater from 0.1.0 | in development on `main`; see `[Unreleased]` in [CHANGELOG.md](../CHANGELOG.md) |
 | Remediation (2026-11) | Hardening and features across runtime, core, pipeline, platforms, integrations, interface, CLI/MCP, release and cleanup, plus three recording behaviours reported in use (meeting end not saving, panel staying after capture, live transcript scrolling) | in progress; item status in [acceptance.md](acceptance.md) |
 
 **Acceptance still needed:**

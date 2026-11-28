@@ -2,7 +2,7 @@
 
 ## Status
 
-The first binary release is in preparation. Report issues against the latest source revision and include the commit you tested.
+Only the [latest release](https://github.com/BroToolbox/BroScribe/releases/latest) is supported; the next one is developed on `main`. Security fixes go into `main` and ship in the next release. Report issues against the latest release or the latest `main`, and include the version or commit you tested.
 
 ## Reporting a vulnerability
 
@@ -13,7 +13,7 @@ When reporting:
 - Use a private channel. Do not open a public issue for a vulnerability.
 - Reproduce with synthetic or openly licensed audio and invented names.
 - Never attach real recordings, transcripts, voice embeddings, calendar data, tokens, cookies, keychain or credential-store exports, or personal paths. Redact logs before sending them; BroScribe's logs are designed to contain counts and identifiers, not content, but check them anyway.
-- Include the commit, OS and architecture, how BroScribe was built and signed (ad-hoc, Apple Development, Developer ID), and the smallest reproduction.
+- Include the version or commit, OS and architecture, how BroScribe was built and signed (ad-hoc, Apple Development, Developer ID), and the smallest reproduction.
 
 ## Scope
 
@@ -51,6 +51,6 @@ See [docs/design.md](docs/design.md) for the detailed security model.
 
 ## Known limitations
 
-- Only a release dry run has been signed with the Developer ID certificate and notarized; no notarized release has been published yet. Ad-hoc and Apple Development signatures are for local use only, and macOS may drop permission grants when the signature changes.
+- The macOS packages of each release are signed with the Developer ID certificate, notarized and stapled. Windows packages are not yet Authenticode-signed: until a signer pin exists, the updater trusts the signed manifest and the artifact hashes, as on Linux. Ad-hoc and Apple Development signatures are for local use only, and macOS may drop permission grants when the signature changes.
 - Windows and Linux platform code is implemented and compiled in parts, but its runtime security properties (credential stores, IPC peer checks on real desktops, notifications) are not verified on real systems. See [docs/acceptance.md](docs/acceptance.md).
 - Microsoft 365 and Google sign-in have not been validated against a real tenant.
