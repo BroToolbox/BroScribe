@@ -4015,6 +4015,14 @@ fn uninstall_allowlist_covers_profile_writers_and_preserves_only_unknown_entries
             partial.join("synthetic.onnx"),
         )
         .unwrap();
+        // A download in progress records its staged files first.
+        broscribe_platform::profile_cleanup::ModelPartialEntries {
+            id: model.id.clone(),
+            files: vec!["synthetic.onnx".into()],
+            ..Default::default()
+        }
+        .save(&partial)
+        .unwrap();
 
         templates::save_user(
             &data,

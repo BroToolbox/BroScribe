@@ -132,8 +132,9 @@ impl ModelStore {
             .is_ok_and(|(has_files, _)| has_files)
     }
 
-    /// Removes only files listed by the install marker or the download's
-    /// staging record.
+    /// Removes model files only when the install marker or the download's
+    /// staging record lists them, along with those records and recognised
+    /// Finder and Explorer metadata.
     /// The caller holds the model and config locks.
     pub fn remove_model_files(&self, entry: &ModelEntry) -> Result<bool> {
         self.clean_model(entry, true)

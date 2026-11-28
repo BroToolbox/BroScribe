@@ -76,6 +76,16 @@ try {
   $legacy = Read-ModelShape $model
   if (!(Matches-CleanupRule '.partial/assets/model.onnx' $legacy 'file')) { throw 'Rejected a v0.1.0 staging record' }
   if (Matches-CleanupRule 'assets/model.onnx' $legacy 'file') { throw 'A v0.1.0 staging record claimed a root file' }
+  # An install marker alone claims installed paths, never staged copies.
+  $installed = Join-Path $temp 'installed-model'
+  [void][IO.Directory]::CreateDirectory((Join-Path $installed '.partial'))
+  [IO.File]::WriteAllText((Join-Path $installed '.verified'),
+    '{"id":"installed-model","files":[{"path":"model.onnx"}],"sources":[{"file":"model.tar.bz2"}]}')
+  $marked = Read-ModelShape $installed
+  if (!(Matches-CleanupRule 'model.onnx' $marked 'file')) { throw 'Missing an installed file' }
+  foreach ($path in @('.partial/model.onnx', '.partial/model.tar.bz2')) {
+    if (Matches-CleanupRule $path $marked 'file') { throw ('An install marker claimed staged ' + $path) }
+  }
   # Cleaning a staging folder itself never changes its model's record.
   $recordPath = Join-Path $partial '.entries.json'
   [IO.File]::WriteAllText($recordPath,
