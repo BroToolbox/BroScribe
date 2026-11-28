@@ -1,12 +1,12 @@
 # Installing, upgrading and removing BroScribe
 
-Release packages for macOS, Linux and Windows are on the [Releases page](https://github.com/BroToolbox/BroScribe/releases), starting with 0.1.0 (2026-11-28). These instructions cover those release archives, local macOS builds, and native development builds. Platform acceptance is tracked in [acceptance.md](acceptance.md).
+Release packages for macOS, Linux and Windows are on the [Releases page](https://github.com/BroToolbox/BroScribe/releases); start from the [latest release](https://github.com/BroToolbox/BroScribe/releases/latest). These instructions cover those release archives, local macOS builds, and native development builds. Platform acceptance is tracked in [acceptance.md](acceptance.md).
 
 | Platform | How to install today | Status |
 |---|---|---|
-| macOS 14.2 or later, Apple silicon | [release disk image](#macos-release-archive) (DMG; the ZIP is an alternative) or build `BroScribe.app` from source and sign it locally | supported build; the 0.1.0 disk image and ZIP were signed, notarized and stapled by the release workflow; the clean-account Gatekeeper checks remain *verify* |
-| Linux x86-64 or ARM64 (glibc) | [per-user tar.gz install](#linux-release-archive) or build from source | tar.gz published since 0.1.0. Native desktop checks remain *verify* |
-| Windows x86-64 | [per-user ZIP install](#windows-release-archive) or build from source | unsigned ZIP published since 0.1.0. Authenticode and native desktop checks remain *verify* |
+| macOS 14.2 or later, Apple silicon | [release disk image](#macos-release-archive) (DMG; the ZIP is an alternative) or build `BroScribe.app` from source and sign it locally | supported build; each release's disk image and ZIP are signed, notarized and stapled by the release workflow; the clean-account Gatekeeper checks remain *verify* |
+| Linux x86-64 or ARM64 (glibc) | [per-user tar.gz install](#linux-release-archive) or build from source | tar.gz published with each release. Native desktop checks remain *verify* |
+| Windows x86-64 | [per-user ZIP install](#windows-release-archive) or build from source | ZIP published with each release, not yet Authenticode-signed. Authenticode and native desktop checks remain *verify* |
 
 There is no Intel Mac build: only the `osx-arm64` native libraries are pinned.
 

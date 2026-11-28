@@ -1,6 +1,6 @@
 # BroScribe design
 
-Status: v6 (2026-11-17), kept current with `main`. Latest release: 0.1.0 (2026-11-28). Licence: Apache-2.0.
+Status: v6 (2026-11-17), kept current with `main`; releases are listed in [CHANGELOG.md](../CHANGELOG.md). Licence: Apache-2.0.
 
 BroScribe is a local-first meeting memory.
 - It detects meetings and records them automatically, with a live side panel.
@@ -8,7 +8,7 @@ BroScribe is a local-first meeting memory.
 - After each meeting it produces an accurate transcript where every line carries a real name, without assigning speakers by hand every time.
 - A CLI and an MCP server let agents search meetings by subject, keywords, participants and tags.
 
-The whole application is Rust with a GPUI interface. macOS on Apple silicon is the supported build. Since 0.1.0, Windows x64 and Linux x64/arm64 packages are published beside it; their desktop runtime acceptance is still *verify* (§13–§14). What has been proven, item by item, is recorded in [acceptance.md](acceptance.md); installation, upgrade and removal are in [install.md](install.md).
+The whole application is Rust with a GPUI interface. macOS on Apple silicon is the supported build. Every release also publishes Windows x64 and Linux x64/arm64 packages; their desktop runtime acceptance is still *verify* (§13–§14). What has been proven, item by item, is recorded in [acceptance.md](acceptance.md); installation, upgrade and removal are in [install.md](install.md).
 
 ## 1. Problem
 

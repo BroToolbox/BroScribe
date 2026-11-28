@@ -2,7 +2,7 @@
 
 ## Status
 
-BroScribe 0.1.0 is the latest release, and the next release is developed on `main`. Security fixes go into `main` and ship in the next release. Report issues against the latest release or the latest `main`, and include the version or commit you tested.
+Only the [latest release](https://github.com/BroToolbox/BroScribe/releases/latest) is supported; the next one is developed on `main`. Security fixes go into `main` and ship in the next release. Report issues against the latest release or the latest `main`, and include the version or commit you tested.
 
 ## Reporting a vulnerability
 
