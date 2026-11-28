@@ -302,6 +302,9 @@ pub struct AppState {
     /// [`crate::daemon::AgentLibrary::Unknown`] with no daemon client.
     agent_library: crate::daemon::AgentLibraryFlag,
     route: Route,
+    /// "Identify voices" was asked for (`Some(meeting)` scopes it to one
+    /// meeting); the review queue takes it when shown.
+    identify_request: Option<Option<MeetingId>>,
     search: MeetingSearch,
     review: ReviewCount,
     meetings_revision: u64,
@@ -362,6 +365,7 @@ impl AppState {
             agent_library: crate::daemon::AgentLibraryFlag::default(),
             config: init.config,
             route: Route::library(),
+            identify_request: None,
             search: MeetingSearch::default(),
             review: ReviewCount::default(),
             meetings_revision: 0,
@@ -1110,6 +1114,19 @@ impl AppState {
     }
 
     // ---- navigation ----
+
+    /// Opens the review queue in its focused "Identify voices" mode, for
+    /// every waiting voice or (`Some`) the voices heard in one meeting.
+    pub fn open_identify(&mut self, meeting: Option<MeetingId>, cx: &mut Context<Self>) {
+        self.identify_request = Some(meeting);
+        self.route = Route::ReviewQueue;
+        cx.notify();
+    }
+
+    /// The pending [`Self::open_identify`] request, taken once.
+    pub fn take_identify_request(&mut self) -> Option<Option<MeetingId>> {
+        self.identify_request.take()
+    }
 
     pub fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route != route {

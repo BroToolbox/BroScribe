@@ -6957,6 +6957,8 @@ mod tests {
                 "views/export.rs" | "views/meeting/header.rs" => 1,
                 // The selected speaker has one primary decision.
                 "views/meeting/speakers.rs" | "views/review.rs" => 1,
+                // The focused review mode confirms the voice's suggestion.
+                "views/review/focus.rs" => 1,
                 // Save is the affirmative action of the due-date editor.
                 "views/meeting/overview.rs" => 1,
                 // Save in the editor and Keep editing in its discard prompt.
