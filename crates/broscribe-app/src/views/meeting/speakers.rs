@@ -1248,11 +1248,43 @@ impl MeetingView {
                         },
                     )
                     .when(!data.speakers.is_empty(), |view| {
-                        view.child(caption(
-                            "speakers-count",
-                            Role::Status,
-                            speaker_count(&data.speakers),
-                        ))
+                        let decisions = data
+                            .speakers
+                            .iter()
+                            .filter(|row| Decision::of(row).needs_decision())
+                            .count();
+                        view.child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .items_center()
+                                .gap_2()
+                                .child(caption(
+                                    "speakers-count",
+                                    Role::Status,
+                                    speaker_count(&data.speakers),
+                                ))
+                                .when(decisions > 1, |row| {
+                                    let meeting = self.meeting_id.clone();
+                                    row.child(
+                                        button(
+                                            "speakers-identify",
+                                            "Identify voices",
+                                            true,
+                                            cx,
+                                            move |this, _, cx| {
+                                                let meeting = meeting.clone();
+                                                this.state.update(cx, |state, cx| {
+                                                    state.open_identify(Some(meeting), cx)
+                                                });
+                                            },
+                                        )
+                                        .small()
+                                        .outline()
+                                        .tooltip("Answer this meeting’s voices one at a time"),
+                                    )
+                                }),
+                        )
                     })
                     .child(self.speaker_history_buttons(cx))
                     .children(self.recheck_panel(cx))

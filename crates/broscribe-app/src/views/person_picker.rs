@@ -820,6 +820,20 @@ impl PersonPicker {
         self.matches.shown.iter().map(|&i| &self.people[i])
     }
 
+    /// The `n` registered people whose voices are closest to the target,
+    /// best first, with their raw scores, whatever the query (empty until
+    /// the voice request is applied).
+    pub(crate) fn closest_people(&self, n: usize) -> Vec<(&PickerPerson, f32)> {
+        self.voices
+            .iter()
+            .filter_map(|v| {
+                let ix = self.people.position(&v.person_id)?;
+                Some((&self.people[ix], v.score))
+            })
+            .take(n)
+            .collect()
+    }
+
     /// The "Closest voices" section: the first shown candidates.
     #[cfg(test)]
     pub(crate) fn closest_voices(&self) -> impl Iterator<Item = &PickerPerson> {

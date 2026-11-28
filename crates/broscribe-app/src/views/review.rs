@@ -33,6 +33,7 @@
 //! focus it on navigation (`view.focus_handle(cx).focus(window, cx)`) so the
 //! keys work without a click.
 
+mod focus;
 mod identity;
 mod identity_checks;
 
@@ -544,6 +545,8 @@ pub struct ReviewView {
     show_dismissed: bool,
     identity: identity::ReviewIdentity,
     identity_checks: identity_checks::Snapshot,
+    /// The focused "Identify voices" mode, while it is open.
+    focus: Option<focus::FocusMode>,
     /// Meetings whose live naming decisions wait for a review.
     live: Vec<LiveReviewMeeting>,
     latest_live_naming: Option<RecordedSpeakerNaming>,
@@ -584,10 +587,14 @@ impl ReviewView {
                 this.identity.clear_preview();
                 this.undo = None;
                 this.row_popup = None;
+                this.focus = None;
                 this.route_generation += 1;
                 cx.notify();
             }
             this.shown = shown;
+            if shown && let Some(scope) = state.update(cx, |s, _| s.take_identify_request()) {
+                this.enter_focus(scope, cx);
+            }
             let now = revisions(&state, cx);
             if now != this.seen_revisions {
                 this.seen_revisions = now;
@@ -634,6 +641,7 @@ impl ReviewView {
             show_dismissed: false,
             identity: identity::ReviewIdentity::default(),
             identity_checks: None,
+            focus: None,
             live: Vec::new(),
             latest_live_naming: None,
             playback: SamplePlayback::default(),
@@ -641,6 +649,15 @@ impl ReviewView {
             _subscriptions: subscriptions,
         };
         view.reload(cx);
+        // Created by the navigation that asked for the focused mode.
+        if shown
+            && let Some(scope) = view
+                .state
+                .clone()
+                .update(cx, |s, _| s.take_identify_request())
+        {
+            view.enter_focus(scope, cx);
+        }
         view
     }
 
@@ -862,6 +879,7 @@ impl ReviewView {
                     }
                     None => {}
                 }
+                self.focus_sync(cx);
             }
             Err(e) => {
                 tracing::warn!(code = e.code(), "reading the review queue");
@@ -1158,6 +1176,12 @@ impl ReviewView {
 
     /// Opens the person picker for the selected row.
     pub fn start_naming(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_picker(true, window, cx);
+    }
+
+    /// [`Self::start_naming`]; `focus_search` moves focus into its field
+    /// (the focused mode keeps it on the voice so number keys choose).
+    fn open_picker(&mut self, focus_search: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.saving.is_some() || self.identity.saving {
             self.wait_for_write(cx);
             return;
@@ -1181,7 +1205,13 @@ impl ReviewView {
         let generation = self.naming_generation;
         let state = self.state.clone();
         let picker = cx.new(|cx| {
-            let mut picker = PersonPicker::new(state, label, window, cx);
+            let mut picker = if focus_search {
+                PersonPicker::new(state, label, window, cx)
+            } else {
+                let mut picker = PersonPicker::new_unfocused(state, label, window, cx);
+                picker.set_cancel_button(false);
+                picker
+            };
             picker.set_voice_target(voice, cx);
             picker
         });
@@ -1193,13 +1223,18 @@ impl ReviewView {
                     this.choose(generation, choice.clone(), window, cx)
                 }
                 PersonPickerEvent::Cancelled => {
-                    if this.naming_is(generation) {
+                    if this.focus.is_some() {
+                        // The focused mode keeps its picker: back to the voice.
+                        this.focus_handle.focus(window, cx);
+                    } else if this.naming_is(generation) {
                         this.cancel_naming(window, cx);
                     }
                 }
             },
         );
-        self.message = None;
+        if focus_search {
+            self.message = None;
+        }
         self.naming = Some(NamingSession {
             key,
             fence,
@@ -1308,6 +1343,24 @@ impl ReviewView {
                 })
             });
         if let Some((label, fence)) = found {
+            if self.focus.is_some() {
+                let outcome = match &action {
+                    Action::Accept(_) => self
+                        .rows
+                        .iter()
+                        .find(|r| r.key() == key)
+                        .and_then(|r| proposal(&r.entry.item))
+                        .map(|(_, name, _)| format!("Named {name}")),
+                    Action::Name {
+                        label: Some(name), ..
+                    } => Some(format!("Named {name}")),
+                    Action::Dismiss(true) => Some("Can’t tell".to_owned()),
+                    _ => None,
+                };
+                if let Some(outcome) = outcome {
+                    self.focus_intend(&key, outcome);
+                }
+            }
             let choice = match &action {
                 Action::Accept(person) => Some((PersonChoice::Existing(person.clone()), None)),
                 Action::Name { choice, label, .. } => Some((choice.clone(), label.clone())),
@@ -2283,6 +2336,116 @@ impl ReviewView {
             .children(samples.line(("review-sample-line", ix), &self.cursor, cx))
     }
 
+    /// What the last decision did: its message, the "Can't tell" Undo and
+    /// the speaker recheck (`None` when there is nothing to say).
+    fn render_activity(
+        &self,
+        window: &Window,
+        cx: &Context<Self>,
+    ) -> Option<gpui::Stateful<gpui::Div>> {
+        let restoring = self
+            .saving
+            .as_ref()
+            .is_some_and(|(_, decision)| *decision == Decision::Undo);
+        let undo = if restoring {
+            Some(
+                button(
+                    "review-undo",
+                    Decision::Undo.label(true),
+                    false,
+                    cx,
+                    |_, _, _| {},
+                )
+                .small()
+                .outline()
+                .tab_stop(false),
+            )
+        } else {
+            self.undo.as_ref().map(|undo| {
+                button(
+                    "review-undo",
+                    "Undo",
+                    self.saving.is_none(),
+                    cx,
+                    |this: &mut Self, window, cx| {
+                        this.undo_dismiss(cx);
+                        this.focus_handle.focus(window, cx);
+                    },
+                )
+                .small()
+                .outline()
+                .accessibility_label(format!("Undo: return {} to the review queue", undo.label))
+                .children(Kbd::binding_for_action_in(
+                    &Undo,
+                    &self.focus_handle,
+                    window,
+                ))
+            })
+        };
+        let recheck = self.recheck(cx).map(|shown| {
+            let status = self.state.read(cx).recheck().status.as_ref();
+            learning::render_recheck(
+                "review-recheck",
+                RecheckText {
+                    outcome: shown.outcome,
+                    lines: shown.lines,
+                    links: shown.links,
+                },
+                shown.failure,
+                learning::recheck_phase(status, None),
+                &self.state,
+                |this: &mut Self, window, cx| {
+                    this.hide_recheck(cx);
+                    this.focus_handle.focus(window, cx);
+                },
+                cx,
+            )
+            .border_0()
+            .p_0()
+        });
+        if !(self.message.is_some() || self.identity.saving || undo.is_some() || recheck.is_some())
+        {
+            return None;
+        }
+        Some(
+            div()
+                .id("review-activity")
+                .role(Role::Group)
+                .aria_label("Review activity")
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .when(self.identity.saving, |el| {
+                            el.child(kit::status_line(
+                                "identity-saving",
+                                StatusKind::Pending,
+                                "Saving…",
+                                cx,
+                            ))
+                        })
+                        .children(self.message.clone().map(|words| {
+                            kit::status_line("review-message", self.message_kind, words, cx)
+                        }))
+                        .when(restoring, |el| {
+                            el.child(kit::status_line(
+                                "review-undo-pending",
+                                StatusKind::Pending,
+                                "Saving…",
+                                cx,
+                            ))
+                        })
+                        .children(undo),
+                )
+                .children(recheck),
+        )
+    }
+
     fn render_live(&self, cx: &Context<Self>) -> Option<AnyElement> {
         if self.live.is_empty() {
             return None;
@@ -2431,6 +2594,9 @@ impl Focusable for ReviewView {
 
 impl Render for ReviewView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.focus.is_some() {
+            return self.render_focus(window, cx).into_any_element();
+        }
         let list_focused = self.focus_handle.is_focused(window);
         let selection_focused = self.focus_handle.contains_focused(window, cx);
         if std::mem::take(&mut self.reveal_selection) {
@@ -2472,66 +2638,7 @@ impl Render for ReviewView {
             }),
             cx,
         );
-        let restoring = self
-            .saving
-            .as_ref()
-            .is_some_and(|(_, decision)| *decision == Decision::Undo);
-        let undo = if restoring {
-            Some(
-                button(
-                    "review-undo",
-                    Decision::Undo.label(true),
-                    false,
-                    cx,
-                    |_, _, _| {},
-                )
-                .small()
-                .outline()
-                .tab_stop(false),
-            )
-        } else {
-            self.undo.as_ref().map(|undo| {
-                button(
-                    "review-undo",
-                    "Undo",
-                    self.saving.is_none(),
-                    cx,
-                    |this: &mut Self, window, cx| {
-                        this.undo_dismiss(cx);
-                        this.focus_handle.focus(window, cx);
-                    },
-                )
-                .small()
-                .outline()
-                .accessibility_label(format!("Undo: return {} to the review queue", undo.label))
-                .children(Kbd::binding_for_action_in(
-                    &Undo,
-                    &self.focus_handle,
-                    window,
-                ))
-            })
-        };
-        let recheck = self.recheck(cx).map(|shown| {
-            let status = self.state.read(cx).recheck().status.as_ref();
-            learning::render_recheck(
-                "review-recheck",
-                RecheckText {
-                    outcome: shown.outcome,
-                    lines: shown.lines,
-                    links: shown.links,
-                },
-                shown.failure,
-                learning::recheck_phase(status, None),
-                &self.state,
-                |this: &mut Self, window, cx| {
-                    this.hide_recheck(cx);
-                    this.focus_handle.focus(window, cx);
-                },
-                cx,
-            )
-            .border_0()
-            .p_0()
-        });
+        let activity = self.render_activity(window, cx);
         let rows: Vec<_> = if self.identity.show_duplicates {
             Vec::new()
         } else if self.show_dismissed {
@@ -2700,6 +2807,30 @@ impl Render for ReviewView {
                             .when(
                                 !self.show_dismissed
                                     && !self.identity.show_duplicates
+                                    && (!self.rows.is_empty()
+                                        || !self.identity.snapshot.duplicates.is_empty()),
+                                |el| {
+                                    let enabled = self.saving.is_none() && !self.identity.saving;
+                                    el.child(
+                                        button(
+                                            "review-start-identifying",
+                                            "Start identifying",
+                                            enabled,
+                                            cx,
+                                            |this: &mut Self, window, cx| {
+                                                this.enter_focus(None, cx);
+                                                this.focus_handle.focus(window, cx);
+                                            },
+                                        )
+                                        .outline()
+                                        .small()
+                                        .tooltip("Answer one voice at a time, with the keyboard"),
+                                    )
+                                },
+                            )
+                            .when(
+                                !self.show_dismissed
+                                    && !self.identity.show_duplicates
                                     && self.rows.is_empty()
                                     && !self.dismissed.is_empty(),
                                 |el| {
@@ -2721,56 +2852,7 @@ impl Render for ReviewView {
                             ),
                     ),
             )
-            .when(
-                self.message.is_some()
-                    || self.identity.saving
-                    || undo.is_some()
-                    || recheck.is_some(),
-                |el| {
-                    el.child(
-                        div()
-                            .id("review-activity")
-                            .role(Role::Group)
-                            .aria_label("Review activity")
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .when(self.identity.saving, |el| {
-                                        el.child(kit::status_line(
-                                            "identity-saving",
-                                            StatusKind::Pending,
-                                            "Saving…",
-                                            cx,
-                                        ))
-                                    })
-                                    .children(self.message.clone().map(|words| {
-                                        kit::status_line(
-                                            "review-message",
-                                            self.message_kind,
-                                            words,
-                                            cx,
-                                        )
-                                    }))
-                                    .when(restoring, |el| {
-                                        el.child(kit::status_line(
-                                            "review-undo-pending",
-                                            StatusKind::Pending,
-                                            "Saving…",
-                                            cx,
-                                        ))
-                                    })
-                                    .children(undo),
-                            )
-                            .children(recheck),
-                    )
-                },
-            )
+            .children(activity)
             .child(
                 // The queue is a card on the desk; what compares voices or
                 // profiles inside it is inset.
@@ -2826,6 +2908,7 @@ impl Render for ReviewView {
                     .as_ref()
                     .map(|p| p.render("review-row-menu", cx, Self::close_row_menu)),
             )
+            .into_any_element()
     }
 }
 

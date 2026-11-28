@@ -33,6 +33,16 @@ impl Group {
             format!("{} meetings", self.meetings)
         }
     }
+
+    /// Whether this voice was heard in `meeting`.
+    pub(super) fn has_meeting(&self, meeting: &MeetingId) -> bool {
+        self.members.iter().any(|(o, _)| &o.meeting_id == meeting)
+    }
+
+    /// How many distinct meetings the voice was heard in.
+    pub(super) fn meeting_count(&self) -> usize {
+        self.meetings
+    }
 }
 
 impl Snapshot {
@@ -117,7 +127,7 @@ pub(super) struct ReviewIdentity {
     pub identify: Option<Identification>,
     undo_edits: Vec<HistoryEntry>,
     redo_edits: Vec<HistoryEntry>,
-    merge: Option<(PersonPair, PersonId)>,
+    pub(super) merge: Option<(PersonPair, PersonId)>,
 }
 
 impl ReviewIdentity {
@@ -241,6 +251,12 @@ impl ReviewView {
         let Some(preview) = self.identity.identify.as_ref() else {
             return;
         };
+        let outcome = if preview.label.is_empty() {
+            "Linked".to_owned()
+        } else {
+            format!("Linked {}", preview.label)
+        };
+        let key = preview.key.clone();
         let occurrences = preview
             .members
             .iter()
@@ -248,9 +264,11 @@ impl ReviewView {
             .filter(|(_, chosen)| **chosen)
             .map(|((occurrence, _), _)| occurrence.clone())
             .collect();
+        let person = preview.choice.person_ref().into();
+        self.focus_intend(&key, outcome);
         self.write_identity(
             Write::Identify(IdentifyBatch {
-                person: preview.choice.person_ref().into(),
+                person,
                 occurrences,
             }),
             cx,
@@ -748,7 +766,7 @@ impl ReviewView {
             ))
     }
 
-    fn render_duplicate(
+    pub(super) fn render_duplicate(
         &self,
         ix: usize,
         duplicate: &PersonDuplicate,
