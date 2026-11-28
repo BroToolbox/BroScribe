@@ -571,6 +571,35 @@ fn manifest_reports_a_bad_entry_and_imports_the_rest() {
 }
 
 #[test]
+fn settings_remove_word_matches_the_saved_term() {
+    let f = Fixture::new();
+    let file = f.tmp.path().join("words.txt");
+    std::fs::write(&file, "Sabiá release\nAcorn Labs\n").unwrap();
+    f.json(&[
+        "setup",
+        "--non-interactive",
+        "--words-file",
+        file.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        f.json(&["settings", "remove-word", "sabiá release"])["removed"],
+        false
+    );
+    assert_eq!(
+        f.json(&["settings", "remove-word", "Sabiá release"])["removed"],
+        true
+    );
+    assert_eq!(
+        f.json(&["settings", "remove-word", "Sabiá release"])["removed"],
+        false
+    );
+    assert_eq!(
+        f.json(&["settings", "word-list"])["words"],
+        serde_json::json!(["Acorn Labs"])
+    );
+}
+
+#[test]
 fn setup_flags_create_me_and_doctor_reports() {
     let f = Fixture::new();
     let wav = f.wav("me.wav");

@@ -900,6 +900,13 @@ impl Config {
         Ok((edited, value))
     }
 
+    /// Removes a saved recognition hint by its exact text.
+    pub fn remove_hotword(&mut self, word: &str) -> bool {
+        let count = self.hotwords.len();
+        self.hotwords.retain(|saved| saved != word);
+        self.hotwords.len() != count
+    }
+
     /// Checks what [`Config::load`] would refuse, so no write leaves an
     /// unreadable file.
     fn validate(&self, path: &Path) -> Result<()> {

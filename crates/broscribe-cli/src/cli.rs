@@ -1277,6 +1277,8 @@ pub(crate) enum SettingsCmd {
     DefaultLanguage { value: Option<String> },
     /// Read the saved recognition words. Add words with `setup --words-file`.
     WordList,
+    /// Remove a saved recognition word or phrase by its exact text.
+    RemoveWord { word: String },
     /// Report the last Settings pane and saved window position.
     Window,
     /// Default storage handling for imported recordings.

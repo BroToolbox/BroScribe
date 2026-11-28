@@ -3925,10 +3925,45 @@ impl SettingsView {
             .when(count > 0, |group| {
                 group.child(div().w_full().flex().flex_wrap().gap_1().children(
                     config.hotwords.iter().enumerate().map(|(index, word)| {
-                        kit::tag_chip(word.clone(), cx)
+                        let remove = word.clone();
+                        let tooltip = word.clone();
+                        let label = div()
+                            .id(("settings-word-text", index))
+                            .min_w_0()
+                            .truncate()
+                            .tooltip(move |window, cx| {
+                                gpui::component::tooltip::Tooltip::new(tooltip.clone())
+                                    .max_w(px(360.))
+                                    .whitespace_normal()
+                                    .build(window, cx)
+                            })
+                            .child(word.clone());
+                        kit::tag_chip(label, cx)
                             .id(("settings-saved-word", index))
                             .spoken(Role::Label, word.clone())
                             .max_w_full()
+                            .child(
+                                Button::new(("settings-remove-word", index))
+                                    .ghost()
+                                    .xsmall()
+                                    .flex_none()
+                                    .icon(crate::ui::icons::DISMISS)
+                                    .accessibility_label(format!(
+                                        "Remove {word} from the word list"
+                                    ))
+                                    .tooltip("Remove from word list")
+                                    .disabled(saving)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        let word = remove.clone();
+                                        this.apply_setting(
+                                            "word-list",
+                                            move |config| {
+                                                config.remove_hotword(&word);
+                                            },
+                                            cx,
+                                        );
+                                    })),
+                            )
                     }),
                 ))
             })
@@ -6699,19 +6734,23 @@ mod tests {
     }
 
     #[gpui::test]
-    fn word_list_shows_saved_entries_and_keeps_typed_words_on_one_line(cx: &mut TestAppContext) {
+    fn word_list_shows_terms_keeps_input_wide_and_removes_the_selected_term(
+        cx: &mut TestAppContext,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let (state, window) =
             settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
+        let data = state.read_with(cx, |state, _| state.paths().data_dir.clone());
+        let (seed, ()) = Config::update(&data, |config| {
+            config.hotwords = vec!["Acorn Labs".into(), "Sabiá".into()];
+            Ok(())
+        })
+        .unwrap();
         let mut visual = gpui::VisualTestContext::from_window(window.into(), cx);
         visual.simulate_resize(gpui::size(px(640.), px(480.)));
         window
             .update(&mut visual, |view, window, cx| {
-                state.update(cx, |state, cx| {
-                    let mut config = state.config().clone();
-                    config.hotwords = vec!["Acorn Labs".into(), "Sabiá".into()];
-                    state.set_config(config, cx);
-                });
+                state.update(cx, |state, cx| state.set_config(seed, cx));
                 view.set_page(SettingsPage::Transcription, window, cx);
                 view.page_scroll.scroll_to_top_of_item(5);
                 view.words
@@ -6726,6 +6765,7 @@ mod tests {
                 ("settings-word-count", "2 words saved"),
                 ("settings-saved-word-0", "Acorn Labs"),
                 ("settings-saved-word-1", "Sabiá"),
+                ("settings-remove-word-1", "Remove Sabiá from the word list"),
                 ("settings-words-save", "Add words"),
             ] {
                 assert_eq!(tree.read(tree.find(id)).1, text);
@@ -6741,6 +6781,43 @@ mod tests {
                 let last = input.range_to_bounds(&(3..4)).unwrap();
                 assert_eq!(first.origin.y, last.origin.y);
                 assert!(last.origin.x > first.origin.x);
+            })
+            .unwrap();
+
+        // Another writer adds terms while Settings is showing the old list.
+        let long_word = "SyntheticWord".repeat(12);
+        Config::update(&data, |config| {
+            config.hotwords.push("Juniper".into());
+            config.hotwords.push(long_word.clone());
+            Ok(())
+        })
+        .unwrap();
+        visual.simulate_resize(gpui::size(px(640.), px(900.)));
+        crate::ui::kit::dialog_gate::click(&mut visual, "settings-remove-word-1", Role::Button);
+        assert_eq!(
+            Config::load(&data).unwrap().hotwords,
+            ["Acorn Labs", "Juniper", long_word.as_str()]
+        );
+        visual.update(|window, cx| {
+            let tree = crate::ui::a11y_tree::draw_and_read(window, cx);
+            assert_eq!(tree.read(tree.find("settings-saved-word-1")).1, "Juniper");
+            assert!(!tree.nodes.iter().any(|node| node.name == "Sabiá"));
+        });
+        let scroll = window
+            .update(&mut visual, |view, _, _| view.page_scroll.clone())
+            .unwrap();
+        visual.update(|window, _| {
+            scroll.set_offset(gpui::point(px(0.), -scroll.max_offset().y));
+            window.refresh();
+        });
+        crate::ui::kit::dialog_gate::click(&mut visual, "settings-remove-word-2", Role::Button);
+        assert_eq!(
+            Config::load(&data).unwrap().hotwords,
+            ["Acorn Labs", "Juniper"]
+        );
+        window
+            .update(&mut visual, |view, _, cx| {
+                assert_eq!(view.words.read(cx).value().as_ref(), "TEST");
             })
             .unwrap();
     }

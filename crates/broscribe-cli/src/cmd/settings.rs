@@ -114,6 +114,20 @@ pub(super) fn run(ctx: &mut Ctx<'_>, action: SettingsCmd) -> Result<()> {
                 Ok(())
             })
         }
+        SettingsCmd::RemoveWord { word } => {
+            let (_, removed) = Config::update(ctx.data_dir(), |config| {
+                ctx.check_request_cancelled()?;
+                Ok(config.remove_hotword(&word))
+            })?;
+            let message = if removed {
+                "Word removed from the list."
+            } else {
+                "That word is already absent from the list."
+            };
+            ctx.emit(json!({"removed": removed}), |out| {
+                writeln!(out, "{message}")
+            })
+        }
         SettingsCmd::Window => {
             let state: Value = std::fs::read(ctx.data_dir().join("ui-state.json"))
                 .ok()

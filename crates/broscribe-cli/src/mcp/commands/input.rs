@@ -729,6 +729,16 @@ pub(super) struct WordsInput {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(super) struct RemoveWordInput {
+    /// The exact saved word or phrase from get_word_list.
+    pub(super) word: String,
+    /// Confirm removal of this saved term.
+    #[serde(default)]
+    pub(super) confirm: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SetHandlingInput {
     /// Copy or reference.
     pub(super) handling: McpHandling,
