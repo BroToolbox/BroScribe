@@ -112,6 +112,8 @@ use crate::views::meeting::typed_tags;
 use crate::views::person_picker::{PersonChoice, PersonPicker, PersonPickerEvent};
 
 /// The panel view: its controls, the live transcript list and rendering.
+pub mod dock;
+mod dock_view;
 mod view;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1604,6 +1606,17 @@ pub struct RecordingPanel {
     delete: Option<(Entity<DeleteMeetingPrompt>, Subscription)>,
     /// The people picker open on one live row, frozen to the row as shown.
     live_naming: Option<LiveNaming>,
+    /// The "Speaking now" dock: the turn it names (the one being spoken,
+    /// or an older one chosen with *Who's this?*).
+    dock_target: dock::DockTarget,
+    /// The order people were first listed in, for the dock's session: the
+    /// number keys keep pointing at the same person.
+    dock_order: (Option<String>, Vec<String>),
+    /// Registered people for the dock, and the people revision they were
+    /// read at (or are being read at).
+    dock_known: Rc<Vec<dock::KnownPerson>>,
+    dock_known_revision: Option<u64>,
+    dock_focus: gpui::FocusHandle,
     /// The live row of the latest live decision or picker outcome.
     live_status_turn: Option<String>,
     /// Bumped whenever a live row's status changes.
@@ -3912,6 +3925,148 @@ mod tests {
         // Another session never shows these rows.
         h.event(cx, recording("s2"));
         assert!(turns(&h, cx).iter().all(|t| t.session_id != "s1"));
+    }
+
+    /// The "Speaking now" dock: the people of the call (meeting app,
+    /// calendar, live names) as chips; 1–4 confirm or name the turn being
+    /// spoken; *Who's this?* retargets it until *Back to speaking now*; a
+    /// turn from the microphone is never named.
+    #[gpui::test]
+    fn the_speaking_now_dock_names_the_turn_being_spoken(cx: &mut TestAppContext) {
+        use gpui::VisualTestContext;
+        let h = Harness::new(cx);
+        live_agent(&h, |call| match call {
+            Call::RecordLiveAttribute(p) => {
+                let (id, name) = match p.person_ref.as_deref() {
+                    Some("p-ana") => ("p-ana", "Synthetic Ana"),
+                    _ => ("p-noor", "Noor Example"),
+                };
+                Ok(json!({
+                    "decision": 1,
+                    "turn": live_turn(&p.turn_id, p.revision + 1, "named", json!({
+                        "voice": 2, "named": { "person_id": id, "name": name } })),
+                }))
+            }
+            _ => Ok(json!({})),
+        });
+        let member = |name: &str, email: Option<&str>| broscribe_readers::RosterMember {
+            name: name.into(),
+            email: email.map(Into::into),
+            is_self: false,
+        };
+        h.event(
+            cx,
+            recording_with("s1", |r| {
+                r.observed_roster = vec![
+                    member("Synthetic Ana", None),
+                    member("Noor Example", Some("noor@example.test")),
+                ];
+                // The same Noor from the calendar is one chip; Ben is expected.
+                r.expected_roster = vec![
+                    member("Noor Example", Some("noor@example.test")),
+                    member("Ben Example", Some("ben@example.test")),
+                ];
+            }),
+        );
+        let dock = |h: &Harness, cx: &mut TestAppContext| {
+            h.window
+                .update(cx, |view, _, cx| {
+                    let view = view.dock_view(cx).unwrap();
+                    (
+                        view.target.map(|t| t.turn_id),
+                        view.retargeted,
+                        view.chips
+                            .iter()
+                            .map(|c| (c.person.name.clone(), c.state.words()))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .unwrap()
+        };
+        let (target, retargeted, chips) = dock(&h, cx);
+        assert_eq!(target.as_deref(), Some("system-16000"));
+        assert!(!retargeted);
+        assert_eq!(
+            chips,
+            [
+                ("Synthetic Ana".to_owned(), "tap to confirm".to_owned()),
+                ("Noor Example".to_owned(), "not heard yet".to_owned()),
+                ("Ben Example".to_owned(), "not heard yet".to_owned()),
+            ]
+        );
+        let mut vcx = VisualTestContext::from_window(h.window.into(), cx);
+        assert!(
+            vcx.debug_bounds("speaking-dock").is_some(),
+            "the dock is shown"
+        );
+        let focus = h
+            .window
+            .update(&mut vcx, |view, _, _| view.transcript_focus.clone())
+            .unwrap();
+        vcx.update(|window, cx| focus.focus(window, cx));
+        // 1: Ana's chip confirms the suggestion on the turn being spoken.
+        vcx.simulate_keystrokes("1");
+        vcx.run_until_parked();
+        let calls = h.agent.calls();
+        let [Call::RecordLiveAttribute(confirm)] = &calls[..] else {
+            panic!("{calls:?}");
+        };
+        assert_eq!(
+            (
+                confirm.action,
+                confirm.turn_id.as_str(),
+                confirm.person_ref.as_deref()
+            ),
+            (LiveAction::Confirm, "system-16000", Some("p-ana"))
+        );
+        // 2: Noor (not registered) is named by her e-mail; never a reject.
+        vcx.simulate_keystrokes("2");
+        vcx.run_until_parked();
+        assert!(matches!(
+            &h.agent.calls()[1],
+            Call::RecordLiveAttribute(p) if p.action == LiveAction::Name
+                && p.person_ref.as_deref() == Some("noor@example.test")
+                && p.revision == 3
+        ));
+        // 5 is no person's key.
+        vcx.simulate_keystrokes("5");
+        vcx.run_until_parked();
+        assert_eq!(h.agent.calls().len(), 2);
+        let (_, _, chips) = dock(&h, cx);
+        assert_eq!(chips[1].1, "named · 1 turn");
+
+        // Who's this? on an older turn retargets the dock until Back.
+        h.event(
+            cx,
+            live_event(live_turn("system-8000", 1, "voice", json!({ "voice": 3 }))),
+        );
+        h.act(cx, |view, window, cx| {
+            view.open_live_naming("system-8000", window, cx)
+        });
+        let (target, retargeted, _) = dock(&h, cx);
+        assert_eq!((target.as_deref(), retargeted), (Some("system-8000"), true));
+        h.act(cx, |view, window, cx| view.dock_back(window, cx));
+        let (target, retargeted, _) = dock(&h, cx);
+        assert_eq!(
+            (target.as_deref(), retargeted),
+            (Some("system-16000"), false)
+        );
+        assert!(
+            h.window
+                .update(cx, |view, _, _| view.live_naming.is_none())
+                .unwrap()
+        );
+
+        // Your microphone speaking: nothing to name.
+        h.event(
+            cx,
+            live_event(live_turn("mic-64000", 1, "preview", json!({}))),
+        );
+        let mut vcx = VisualTestContext::from_window(h.window.into(), cx);
+        vcx.update(|window, cx| focus.focus(window, cx));
+        vcx.simulate_keystrokes("3");
+        vcx.run_until_parked();
+        assert_eq!(h.agent.calls().len(), 2, "{:?}", h.agent.calls());
     }
 
     #[gpui::test]

@@ -877,6 +877,10 @@ pub struct RecordingState {
     /// Reader observations, never user confirmations.
     #[serde(default)]
     pub observed_roster: Vec<broscribe_readers::RosterMember>,
+    /// Invitees of the calendar event this recording matches: expected
+    /// names, never confirmations. Empty without a single matching event.
+    #[serde(default)]
+    pub expected_roster: Vec<broscribe_readers::RosterMember>,
     /// The session's current tags (journaled).
     #[serde(default)]
     pub tags: Vec<String>,

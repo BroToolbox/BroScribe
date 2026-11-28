@@ -717,17 +717,70 @@ pub(crate) fn snapshot_calendar(shared: &Shared) -> Result<(), IpcError> {
             None
         })
         .unwrap_or_default();
-    let session = lock(&shared.session);
-    let Some(active) = session.as_ref() else {
+    let mut session = lock(&shared.session);
+    let Some(active) = session.as_mut() else {
         return Ok(());
     };
-    write_session_calendar(
+    let now = chrono::Utc::now();
+    let cache = write_session_calendar(
         &shared.cfg.data_dir,
         &shared.cfg.journal_root().join(active.handle.session_id()),
-        chrono::Utc::now(),
+        now,
         &live,
         remote,
-    )
+    )?;
+    let expected = expected_roster(
+        &cache,
+        active.started_at.with_timezone(&chrono::Utc),
+        now,
+        active.app.as_deref(),
+    );
+    let changed = active.expected_roster != expected;
+    active.expected_roster = expected;
+    drop(session);
+    if changed {
+        shared.publish_state();
+    }
+    Ok(())
+}
+
+/// The invitees of the one calendar event a recording running from `start`
+/// to `now` matches, as the recording window lists them: expected names,
+/// never confirmations. Nobody when no single event matches.
+fn expected_roster(
+    cache: &broscribe_integrations::CalendarCache,
+    start: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+    app: Option<&str>,
+) -> Vec<broscribe_readers::RosterMember> {
+    let Ok(Some(events)) = cache.match_recording(start, now.max(start), None, app) else {
+        return Vec::new();
+    };
+    let Some(event) = events.first() else {
+        return Vec::new();
+    };
+    event
+        .attendees
+        .iter()
+        .filter_map(|attendee| {
+            let email = attendee
+                .email
+                .as_deref()
+                .map(str::trim)
+                .filter(|e| !e.is_empty());
+            let name = attendee
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .or(email)?;
+            Some(broscribe_readers::RosterMember {
+                name: name.to_owned(),
+                email: email.map(str::to_owned),
+                is_self: attendee.is_self,
+            })
+        })
+        .collect()
 }
 
 /// The authorities under which the provider-wide calendar caches may enter a session
@@ -787,7 +840,7 @@ fn write_session_calendar(
     now: chrono::DateTime<chrono::Utc>,
     live: &LiveCalendars,
     remote: Vec<broscribe_integrations::CalendarEvent>,
-) -> Result<(), IpcError> {
+) -> Result<broscribe_integrations::CalendarCache, IpcError> {
     let mut cache = broscribe_integrations::CalendarCache { events: remote };
     for id in provider_contexts() {
         let google = id == IntegrationId::Google;
@@ -839,10 +892,11 @@ fn write_session_calendar(
         && broscribe_core::fsutil::read_json::<broscribe_integrations::CalendarCache>(&path)
             .is_ok_and(|current| current == cache)
     {
-        return Ok(());
+        return Ok(cache);
     }
     // Attendee names and e-mails: never readable by other users (mode 0600).
-    cache.save_private(&path).map_err(public_error)
+    cache.save_private(&path).map_err(public_error)?;
+    Ok(cache)
 }
 
 #[cfg(test)]
@@ -2571,5 +2625,71 @@ mod tests {
         let first = write(vec![event("a")]);
         assert_eq!(write(vec![event("a")]), first);
         assert_ne!(write(vec![event("a"), event("b")]), first);
+    }
+
+    /// The recording window lists the matching event's invitees as expected
+    /// names: a name or, without one, the e-mail; nobody without a single
+    /// matching event.
+    #[test]
+    fn expected_roster_lists_the_matching_events_invitees() {
+        let now = chrono::Utc::now();
+        let attendee =
+            |name: Option<&str>, email: Option<&str>, is_self| broscribe_integrations::Attendee {
+                name: name.map(Into::into),
+                email: email.map(Into::into),
+                is_self,
+            };
+        let event = broscribe_integrations::CalendarEvent {
+            id: "e".into(),
+            integration: IntegrationId::Google,
+            title: Some("Synthetic sync".into()),
+            start: now - chrono::Duration::minutes(5),
+            end: now + chrono::Duration::hours(1),
+            join_links: Vec::new(),
+            app: None,
+            attendees: vec![
+                attendee(Some("Iris Vale"), Some("iris@example.test"), false),
+                attendee(None, Some(" noor@example.test "), false),
+                attendee(Some("Owner"), None, true),
+                attendee(None, None, false),
+            ],
+            account_generation: None,
+            google: Some(broscribe_core::calendar::GoogleCalendarStamp {
+                generation: 1,
+                selection_generation: 1,
+            }),
+            remote: None,
+            ical_uid: None,
+            occurrence_id: None,
+        };
+        let cache = broscribe_integrations::CalendarCache {
+            events: vec![event.clone()],
+        };
+        let roster = expected_roster(&cache, now - chrono::Duration::minutes(1), now, None);
+        let member = |name: &str, email: Option<&str>, is_self| broscribe_readers::RosterMember {
+            name: name.into(),
+            email: email.map(Into::into),
+            is_self,
+        };
+        assert_eq!(
+            roster,
+            [
+                member("Iris Vale", Some("iris@example.test"), false),
+                member("noor@example.test", Some("noor@example.test"), false),
+                member("Owner", None, true),
+            ]
+        );
+        // A recording long after the event matches nothing.
+        let later = now + chrono::Duration::hours(3);
+        assert!(expected_roster(&cache, later, later, None).is_empty());
+        // Two equally good events: no single invitee list.
+        let twin = broscribe_integrations::CalendarEvent {
+            id: "f".into(),
+            ..event
+        };
+        let tied = broscribe_integrations::CalendarCache {
+            events: vec![cache.events[0].clone(), twin],
+        };
+        assert!(expected_roster(&tied, now - chrono::Duration::minutes(1), now, None).is_empty());
     }
 }
