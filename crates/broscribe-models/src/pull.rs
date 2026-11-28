@@ -262,9 +262,16 @@ fn stage(
         files: entry
             .files
             .iter()
+            .filter(|f| !f.archive)
             .map(|f| f.file_name().to_owned())
             .collect(),
         dirs: Vec::new(),
+        sources: entry
+            .files
+            .iter()
+            .filter(|f| f.archive)
+            .map(|f| f.file_name().to_owned())
+            .collect(),
     };
     partial_entries.save(partial)?;
     let mut installed = Vec::new();
@@ -521,8 +528,10 @@ fn extract_tar_bz2(
     for item in tar.entries().map_err(|e| Error::io(context(), e))? {
         stop.check().map_err(|e| Error::io(context(), e))?;
         let mut item = item.map_err(|e| Error::io(context(), e))?;
+        // Folders come from the files inside them. An empty folder would
+        // outlive the install's file list.
         let kind = item.header().entry_type();
-        if !kind.is_file() && !kind.is_dir() {
+        if !kind.is_file() {
             continue;
         }
         let rel = item
@@ -548,20 +557,11 @@ fn extract_tar_bz2(
             )));
         }
         let name = parts.join("/");
-        let paths = if kind.is_dir() {
-            &mut entries.dirs
-        } else {
-            &mut entries.files
-        };
-        if !paths.contains(&name) {
-            paths.push(name.clone());
+        if !entries.files.contains(&name) {
+            entries.files.push(name.clone());
             entries.save(dest)?;
         }
         let target = parts.iter().fold(dest.to_path_buf(), |p, s| p.join(s));
-        if kind.is_dir() {
-            std::fs::create_dir_all(&target).map_err(|e| Error::io_at(&target, e))?;
-            continue;
-        }
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::io_at(parent, e))?;
         }
@@ -832,6 +832,131 @@ mod tests {
         let store = ModelStore::new(data.path());
         assert_eq!(store.doctor(&e, false).unwrap(), Health::Missing);
         assert!(!store.model_dir("tiny").unwrap().join(PARTIAL_DIR).exists());
+    }
+
+    fn archive_entry(mirror: &Path, archive: &[u8]) -> ModelEntry {
+        let mut file = plain("synthetic.tar.bz2", archive);
+        file.archive = true;
+        std::fs::write(mirror.join(file.file_name()), archive).unwrap();
+        entry("tiny", vec![file])
+    }
+
+    #[test]
+    fn a_root_file_named_like_the_archive_is_not_the_downloads() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let model = archive_entry(mirror.path(), &tar_bz2("synthetic", &[("w.onnx", b"w")]));
+        let dir = ModelStore::new(data.path()).model_dir(&model.id).unwrap();
+        let unknown = dir.join("synthetic.tar.bz2");
+        let error = pull(
+            &model,
+            data.path(),
+            &opts(mirror.path()),
+            &mut |_, _| std::fs::write(&unknown, b"keep").unwrap(),
+            &x(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "model_cache_has_other_files");
+        assert_eq!(std::fs::read(&unknown).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn a_failed_retry_after_an_interrupted_install_can_still_recover() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let archive = tar_bz2("synthetic", &[("w.onnx", b"w")]);
+        let model = archive_entry(mirror.path(), &archive);
+        let dir = ModelStore::new(data.path()).model_dir(&model.id).unwrap();
+        // Install moved the payload out of staging, then stopped before the marker.
+        let partial = dir.join(PARTIAL_DIR);
+        std::fs::create_dir_all(dir.join("synthetic")).unwrap();
+        std::fs::create_dir_all(&partial).unwrap();
+        std::fs::write(dir.join("synthetic/w.onnx"), b"w").unwrap();
+        ModelPartialEntries {
+            id: model.id.clone(),
+            files: vec!["synthetic/w.onnx".into()],
+            dirs: Vec::new(),
+            sources: vec!["synthetic.tar.bz2".into()],
+        }
+        .save(&partial)
+        .unwrap();
+        let mut damaged = archive.clone();
+        damaged[0] ^= 1;
+        std::fs::write(mirror.path().join("synthetic.tar.bz2"), &damaged).unwrap();
+        let options = opts(mirror.path());
+        pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap_err();
+        std::fs::write(mirror.path().join("synthetic.tar.bz2"), &archive).unwrap();
+        assert_eq!(
+            pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap(),
+            PullOutcome::Installed
+        );
+    }
+
+    #[test]
+    fn an_empty_folder_in_an_archive_does_not_block_a_later_download() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let enc = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        let mut folder = tar::Header::new_gnu();
+        folder.set_entry_type(tar::EntryType::Directory);
+        folder.set_size(0);
+        folder.set_mode(0o755);
+        folder.set_cksum();
+        builder
+            .append_data(&mut folder, "synthetic/empty/", std::io::empty())
+            .unwrap();
+        let mut file = tar::Header::new_gnu();
+        file.set_size(1);
+        file.set_mode(0o644);
+        file.set_cksum();
+        builder
+            .append_data(&mut file, "synthetic/w.onnx", &b"w"[..])
+            .unwrap();
+        let archive = builder.into_inner().unwrap().finish().unwrap();
+        let model = archive_entry(mirror.path(), &archive);
+        let store = ModelStore::new(data.path());
+        let dir = store.model_dir(&model.id).unwrap();
+        let options = opts(mirror.path());
+        pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap();
+        assert!(dir.join("synthetic/w.onnx").is_file());
+        assert!(!dir.join("synthetic/empty").exists());
+        let lock = store.lock_for_removal(&model).unwrap().unwrap();
+        assert!(store.remove_model_files(&model).unwrap());
+        drop(lock);
+        assert_eq!(
+            pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap(),
+            PullOutcome::Installed
+        );
+    }
+
+    #[test]
+    fn finder_and_explorer_files_do_not_block_an_update() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let name = "weights.onnx";
+        std::fs::write(mirror.path().join(name), b"earlier").unwrap();
+        let options = opts(mirror.path());
+        pull(
+            &entry("tiny", vec![plain(name, b"earlier")]),
+            data.path(),
+            &options,
+            &mut |_, _| {},
+            &x(),
+        )
+        .unwrap();
+        let dir = ModelStore::new(data.path()).model_dir("tiny").unwrap();
+        for metadata in [".DS_Store", "._weights.onnx", "Thumbs.db", "desktop.ini"] {
+            std::fs::write(dir.join(metadata), b"metadata").unwrap();
+        }
+        std::fs::write(mirror.path().join(name), b"new").unwrap();
+        let update = entry("tiny", vec![plain(name, b"new")]);
+        assert_eq!(
+            pull(&update, data.path(), &options, &mut |_, _| {}, &x()).unwrap(),
+            PullOutcome::Installed
+        );
+        assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"new");
+        assert!(!dir.join(".DS_Store").exists());
     }
 
     #[test]

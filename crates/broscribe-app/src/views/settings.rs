@@ -1238,7 +1238,8 @@ impl PullState {
 
 /// “Couldn't download {model name}. {Cause}. Check your connection, then
 /// try again.” (WRT-08): `name` is [`ModelsList::model_name`]; the CLI's own
-/// `io` there is the download ([`CliError::download_text`]).
+/// `io` there is the download ([`CliError::download_text`]). A model folder
+/// holding unrecognised files already names its own next step.
 pub(crate) fn download_failure(name: &str, error: &CliError) -> String {
     failure_text(
         &format!("Couldn't download {name}."),
@@ -1266,11 +1267,9 @@ fn open_chosen_library(path: &Path) -> Result<Library> {
     for entry in entries {
         let entry = entry.map_err(|e| Error::io_at(path, e))?;
         let name = entry.file_name();
-        let os_metadata = name.to_str().is_some_and(|name| {
-            name == ".DS_Store"
-                || name.eq_ignore_ascii_case("desktop.ini")
-                || name.eq_ignore_ascii_case("Thumbs.db")
-        }) || name.as_encoded_bytes().starts_with(b"._");
+        let os_metadata = name
+            .to_str()
+            .is_some_and(broscribe_platform::profile_cleanup::is_os_metadata);
         if !os_metadata
             || !entry
                 .file_type()

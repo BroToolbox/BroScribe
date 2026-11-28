@@ -352,8 +352,20 @@ pub const MODEL_PARTIAL_RECORD: &str = ".entries.json";
 #[serde(deny_unknown_fields)]
 pub struct ModelPartialEntries {
     pub id: String,
+    /// Staged files that install moves into the model folder.
     pub files: Vec<String>,
     pub dirs: Vec<String>,
+    /// Downloads that stay in `.partial`, such as an archive before unpacking.
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// Files the macOS Finder and Windows Explorer write into folders they show.
+pub fn is_os_metadata(name: &str) -> bool {
+    name == ".DS_Store"
+        || name.starts_with("._")
+        || name.eq_ignore_ascii_case("desktop.ini")
+        || name.eq_ignore_ascii_case("Thumbs.db")
 }
 
 impl ModelPartialEntries {
@@ -461,6 +473,9 @@ fn model_shape(root: &Path) -> Option<Shape> {
             add(&mut shape, format!(".partial/{path}"), true);
             add(&mut shape, path, true);
         }
+        for path in entries.sources {
+            add(&mut shape, format!(".partial/{path}"), false);
+        }
     }
     Some(shape)
 }
@@ -515,6 +530,8 @@ pub fn clean_model(
     let Some(mut shape) = model_shape(root) else {
         return Ok((false, Cleanup::default()));
     };
+    // Only a readable marker for this model lists its files.
+    let verified = shape.files.iter().any(|file| file == ".verified");
     // The downloader reserves this filename, including a damaged marker.
     shape.files.push(".verified".into());
     for file in loose_files {
@@ -526,6 +543,20 @@ pub fn clean_model(
         .1
         .iter()
         .any(|(_, task)| matches!(task, Task::File { .. }));
+    // Finder and Explorer metadata never names a model file, so it neither
+    // blocks a download nor keeps an emptied model folder around.
+    plan.0.kept.retain(|path| {
+        let metadata = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_os_metadata)
+            && std::fs::symlink_metadata(path)
+                .is_ok_and(|meta| meta.is_file() && !is_reparse(&meta));
+        if metadata {
+            plan.1.push((path.clone(), Task::File { socket: false }));
+        }
+        !metadata
+    });
     if mode == ModelCleanup::Inspect || (mode == ModelCleanup::Remove && !has_files) {
         return Ok((has_files, plan.0));
     }
@@ -548,7 +579,11 @@ pub fn clean_model(
 
     let staging = root.join(".partial");
     match mode {
-        ModelCleanup::RestartDownload => plan.1.retain(|(path, _)| path.starts_with(&staging)),
+        // Without a marker the folder holds no usable install, only what an
+        // interrupted install had moved out of staging.
+        ModelCleanup::RestartDownload if verified => {
+            plan.1.retain(|(path, _)| path.starts_with(&staging))
+        }
         ModelCleanup::InstallDownload => plan.1.retain(|(path, _)| !path.starts_with(&staging)),
         _ => {}
     }
@@ -821,6 +856,7 @@ mod tests {
             id: "synthetic.model".into(),
             files: vec!["assets/model.onnx".into()],
             dirs: vec!["assets".into()],
+            sources: Vec::new(),
         }
         .save(&partial)
         .unwrap();
