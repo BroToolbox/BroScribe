@@ -367,7 +367,13 @@ fn install(
         record.moved.push(name.to_owned());
         record.save(partial)?;
         let to = dir.join(name);
-        std::fs::rename(&from, &to).map_err(|e| Error::io_at(&from, e))?;
+        if let Err(error) = std::fs::rename(&from, &to) {
+            // The entry is still staged: a later cleanup must not take a
+            // root file of that name for it.
+            record.moved.pop();
+            let _ = record.save(partial);
+            return Err(Error::io_at(&from, error));
+        }
     }
     store.mark_verified(&VerifiedMarker {
         id: entry.id.clone(),
@@ -967,9 +973,10 @@ mod tests {
             let store = ModelStore::new(data.path());
             let dir = store.model_dir(&model.id).unwrap();
             let partial = dir.join(PARTIAL_DIR);
-            std::fs::create_dir_all(partial.join("synthetic")).unwrap();
+            std::fs::create_dir_all(&partial).unwrap();
             std::fs::create_dir_all(dir.join("synthetic")).unwrap();
             if recorded {
+                std::fs::create_dir_all(partial.join("synthetic")).unwrap();
                 std::fs::write(partial.join("synthetic/w.onnx"), b"w").unwrap();
             }
             ModelPartialEntries {
@@ -1003,6 +1010,77 @@ mod tests {
                 assert_eq!(error.code(), "model_cache_has_other_files");
             }
             assert_eq!(std::fs::read(&restored).unwrap(), b"keep");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_install_rename_never_lets_cleanup_claim_a_restored_file() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mirror = tempfile::tempdir().unwrap();
+        let model = archive_entry(mirror.path(), &tar_bz2("synthetic", &[("w.onnx", b"w")]));
+        for operation in ["retry", "remove", "data"] {
+            let data = tempfile::tempdir().unwrap();
+            let store = ModelStore::new(data.path());
+            let dir = store.model_dir(&model.id).unwrap();
+            let mode = |mode| {
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap()
+            };
+            // The model folder turns read-only once the download has
+            // finished, so install's rename out of staging fails.
+            let total = model.total_bytes();
+            let error = pull(
+                &model,
+                data.path(),
+                &opts(mirror.path()),
+                &mut |done, _| {
+                    if done == total {
+                        mode(0o555);
+                    }
+                },
+                &x(),
+            )
+            .unwrap_err();
+            mode(0o755);
+            assert_ne!(error.code(), "model_cache_has_other_files");
+            let partial = dir.join(PARTIAL_DIR);
+            assert!(partial.join("synthetic/w.onnx").is_file());
+            let record: ModelPartialEntries =
+                serde_json::from_slice(&std::fs::read(partial.join(MODEL_PARTIAL_RECORD)).unwrap())
+                    .unwrap();
+            assert!(record.moved.is_empty());
+            let restored = dir.join("synthetic/w.onnx");
+            std::fs::create_dir_all(restored.parent().unwrap()).unwrap();
+            std::fs::write(&restored, b"keep").unwrap();
+            match operation {
+                "retry" => {
+                    let error = pull(
+                        &model,
+                        data.path(),
+                        &opts(mirror.path()),
+                        &mut |_, _| {},
+                        &x(),
+                    )
+                    .unwrap_err();
+                    assert_eq!(error.code(), "model_cache_has_other_files");
+                }
+                "remove" => {
+                    let lock = store.lock_for_removal(&model).unwrap().unwrap();
+                    store.remove_model_files(&model).unwrap();
+                    drop(lock);
+                }
+                _ => {
+                    broscribe_platform::profile_cleanup::clean(
+                        data.path(),
+                        "data",
+                        true,
+                        &[],
+                        false,
+                    )
+                    .unwrap();
+                }
+            }
+            assert_eq!(std::fs::read(&restored).unwrap(), b"keep", "{operation}");
         }
     }
 

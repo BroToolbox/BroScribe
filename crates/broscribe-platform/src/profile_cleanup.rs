@@ -657,8 +657,51 @@ fn plan_cleanup(
     Ok((cleanup, tasks))
 }
 
+/// Takes the staged entries a cleanup is about to delete off their
+/// records' `moved` lists first. A staged copy deleted by an interrupted
+/// cleanup then never reads as one that install moved to the model root.
+fn forget_moves(tasks: &[(PathBuf, Task)]) -> Result<()> {
+    let mut staged: Vec<(&Path, Vec<&str>)> = Vec::new();
+    for (path, _) in tasks {
+        let Some((partial, name)) = path.ancestors().find_map(|child| {
+            let parent = child.parent()?;
+            (parent.file_name()? == ".partial").then_some((parent, child.file_name()?.to_str()?))
+        }) else {
+            continue;
+        };
+        if name == MODEL_PARTIAL_RECORD {
+            continue;
+        }
+        match staged.iter_mut().find(|(known, _)| *known == partial) {
+            Some((_, names)) => names.push(name),
+            None => staged.push((partial, vec![name])),
+        }
+    }
+    for (partial, names) in staged {
+        let record = partial.join(MODEL_PARTIAL_RECORD);
+        if !std::fs::symlink_metadata(&record)
+            .is_ok_and(|meta| meta.is_file() && !is_reparse(&meta))
+        {
+            continue;
+        }
+        let Some(mut entries) = std::fs::read(&record)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<ModelPartialEntries>(&bytes).ok())
+        else {
+            continue;
+        };
+        let before = entries.moved.len();
+        entries.moved.retain(|name| !names.contains(&name.as_str()));
+        if entries.moved.len() != before {
+            entries.save(partial)?;
+        }
+    }
+    Ok(())
+}
+
 fn finish_cleanup(root: &Path, (mut cleanup, tasks): CleanupPlan, apply: bool) -> Result<Cleanup> {
     if apply {
+        forget_moves(&tasks)?;
         for (path, task) in tasks {
             let meta = match std::fs::symlink_metadata(&path) {
                 Ok(meta) => meta,
@@ -957,6 +1000,35 @@ mod tests {
         for path in keep {
             assert_eq!(std::fs::read(path).unwrap(), b"synthetic user file");
         }
+    }
+
+    #[test]
+    fn deleting_a_staged_entry_first_takes_it_off_the_moved_list() {
+        let root = tempfile::tempdir().unwrap();
+        let partial = root.path().join("synthetic.model/.partial");
+        std::fs::create_dir_all(partial.join("staged")).unwrap();
+        ModelPartialEntries {
+            id: "synthetic.model".into(),
+            files: vec!["moved/w.onnx".into(), "staged/w.onnx".into()],
+            dirs: Vec::new(),
+            sources: Vec::new(),
+            moved: vec!["moved".into(), "staged".into()],
+        }
+        .save(&partial)
+        .unwrap();
+        let tasks = [
+            (partial.join("staged/w.onnx"), Task::File { socket: false }),
+            (partial.join("staged"), Task::EmptyDir),
+            (
+                partial.join(MODEL_PARTIAL_RECORD),
+                Task::File { socket: false },
+            ),
+        ];
+        forget_moves(&tasks).unwrap();
+        let record: ModelPartialEntries =
+            serde_json::from_slice(&std::fs::read(partial.join(MODEL_PARTIAL_RECORD)).unwrap())
+                .unwrap();
+        assert_eq!(record.moved, vec!["moved".to_owned()]);
     }
 
     #[test]

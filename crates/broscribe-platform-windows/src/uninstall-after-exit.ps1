@@ -508,6 +508,36 @@ function Write-CleanupReceipt($path, $status, $lines) {
   [IO.File]::WriteAllText($path, $status, $encoding)
 }
 
+# Takes staged entries about to be deleted off their records' moved lists
+# first, so a staged copy removed by an interrupted cleanup never reads as
+# one that install moved to the model root.
+function Clear-ModelMoves($tasks) {
+  $staged = @{}
+  foreach ($task in $tasks) {
+    for ($child = $task.path; $child; $child = $parent) {
+      $parent = [IO.Path]::GetDirectoryName($child)
+      if (!$parent) { break }
+      if ([IO.Path]::GetFileName($parent) -ceq '.partial') {
+        $name = [IO.Path]::GetFileName($child)
+        if ($name -cne '.entries.json') {
+          if (!$staged.ContainsKey($parent)) { $staged[$parent] = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal) }
+          [void]$staged[$parent].Add($name)
+        }
+        break
+      }
+    }
+  }
+  foreach ($partial in $staged.Keys) {
+    $file = [IO.Path]::Combine($partial, '.entries.json')
+    $record = Read-ModelRecord $file ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($partial)))
+    if (!$record -or $null -eq $record.moved) { continue }
+    $remaining = @(@($record.moved) | Where-Object { !$staged[$partial].Contains([string]$_) })
+    if ($remaining.Count -eq @($record.moved).Count) { continue }
+    $record.moved = $remaining
+    [IO.File]::WriteAllText($file, (ConvertTo-Json $record -Compress -Depth 4), [Text.UTF8Encoding]::new($false))
+  }
+}
+
 function Remove-Owned($folder, $kind, $skip) {
   if ($null -eq (Attributes $folder)) { return }
   if (!(Has-Type $folder $true)) { $kept.Add($folder); return }
@@ -520,6 +550,7 @@ function Remove-Owned($folder, $kind, $skip) {
       $keptParents.Add($parent)
     }
   }
+  Clear-ModelMoves $tasks
   foreach ($task in $tasks) {
     if ($task.kind -eq 'file' -and (Has-Type $task.path $false)) {
       [IO.File]::Delete($task.path)
