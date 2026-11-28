@@ -1017,6 +1017,14 @@ mod tests {
     #[test]
     fn a_failed_install_rename_never_lets_cleanup_claim_a_restored_file() {
         use std::os::unix::fs::PermissionsExt as _;
+        // Root ignores folder permissions, so the failed rename can't be staged.
+        let probe = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(probe.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = std::fs::write(probe.path().join(".write-probe"), b"").is_ok();
+        std::fs::set_permissions(probe.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable {
+            return;
+        }
         let mirror = tempfile::tempdir().unwrap();
         let model = archive_entry(mirror.path(), &tar_bz2("synthetic", &[("w.onnx", b"w")]));
         for operation in ["retry", "remove", "data"] {

@@ -379,6 +379,46 @@ impl ModelPartialEntries {
     }
 }
 
+fn read_marker<T: serde::de::DeserializeOwned>(marker: &Path) -> Option<T> {
+    const LIMIT: u64 = 4 * 1024 * 1024;
+    let meta = std::fs::symlink_metadata(marker).ok()?;
+    if !meta.is_file() || is_reparse(&meta) || meta.len() > LIMIT {
+        return None;
+    }
+    let file = std::fs::File::open(marker).ok()?;
+    let bytes = std::io::read_to_string(std::io::Read::take(file, LIMIT + 1)).ok()?;
+    if bytes.len() as u64 > LIMIT {
+        return None;
+    }
+    serde_json::from_str(&bytes).ok()
+}
+
+fn safe(path: &str) -> bool {
+    !path
+        .split('/')
+        .any(|part| matches!(part, "" | "." | "..") || part.contains('\\'))
+}
+
+/// The staging record of the model folder `model`, if cleanup accepts it as
+/// that model's own.
+fn staging_record(model: &Path) -> Option<ModelPartialEntries> {
+    let id = model.file_name()?.to_str()?;
+    let partial = model.join(".partial");
+    if !std::fs::symlink_metadata(&partial).is_ok_and(|meta| meta.is_dir() && !is_reparse(&meta)) {
+        return None;
+    }
+    read_marker::<ModelPartialEntries>(&partial.join(MODEL_PARTIAL_RECORD)).filter(|record| {
+        record.id == id
+            && record
+                .files
+                .iter()
+                .chain(&record.dirs)
+                .chain(&record.sources)
+                .chain(&record.moved)
+                .all(|path| safe(path))
+    })
+}
+
 fn model_shape(root: &Path) -> Option<Shape> {
     #[derive(Deserialize)]
     struct Marker {
@@ -394,24 +434,6 @@ fn model_shape(root: &Path) -> Option<Shape> {
     #[derive(Deserialize)]
     struct ModelSource {
         file: String,
-    }
-    fn read_marker<T: serde::de::DeserializeOwned>(marker: &Path) -> Option<T> {
-        const LIMIT: u64 = 4 * 1024 * 1024;
-        let meta = std::fs::symlink_metadata(marker).ok()?;
-        if !meta.is_file() || is_reparse(&meta) || meta.len() > LIMIT {
-            return None;
-        }
-        let file = std::fs::File::open(marker).ok()?;
-        let bytes = std::io::read_to_string(std::io::Read::take(file, LIMIT + 1)).ok()?;
-        if bytes.len() as u64 > LIMIT {
-            return None;
-        }
-        serde_json::from_str(&bytes).ok()
-    }
-    fn safe(path: &str) -> bool {
-        !path
-            .split('/')
-            .any(|part| matches!(part, "" | "." | "..") || part.contains('\\'))
     }
     fn add(shape: &mut Shape, relative: String, is_dir: bool) {
         shape.dirs.extend(
@@ -456,21 +478,7 @@ fn model_shape(root: &Path) -> Option<Shape> {
         }
     }
     let partial = root.join(".partial");
-    if std::fs::symlink_metadata(&partial).is_ok_and(|meta| meta.is_dir() && !is_reparse(&meta))
-        && let Some(entries) = read_marker::<ModelPartialEntries>(
-            &partial.join(MODEL_PARTIAL_RECORD),
-        )
-        .filter(|record| {
-            record.id == id
-                && record
-                    .files
-                    .iter()
-                    .chain(&record.dirs)
-                    .chain(&record.sources)
-                    .chain(&record.moved)
-                    .all(|path| safe(path))
-        })
-    {
+    if let Some(entries) = staging_record(root) {
         shape.files.push(format!(".partial/{MODEL_PARTIAL_RECORD}"));
         // Install records each top-level entry before renaming it out of
         // staging. A root name is BroScribe's only once that entry has moved;
@@ -660,13 +668,19 @@ fn plan_cleanup(
 /// Takes the staged entries a cleanup is about to delete off their
 /// records' `moved` lists first. A staged copy deleted by an interrupted
 /// cleanup then never reads as one that install moved to the model root.
-fn forget_moves(tasks: &[(PathBuf, Task)]) -> Result<()> {
+/// Only staging folders inside `root`, with records cleanup accepts, change.
+fn forget_moves(root: &Path, tasks: &[(PathBuf, Task)]) -> Result<()> {
     let mut staged: Vec<(&Path, Vec<&str>)> = Vec::new();
     for (path, _) in tasks {
-        let Some((partial, name)) = path.ancestors().find_map(|child| {
-            let parent = child.parent()?;
-            (parent.file_name()? == ".partial").then_some((parent, child.file_name()?.to_str()?))
-        }) else {
+        let Some((partial, name)) = path
+            .ancestors()
+            .take_while(|child| child.starts_with(root) && *child != root)
+            .find_map(|child| {
+                let parent = child.parent()?;
+                (parent.file_name()? == ".partial")
+                    .then_some((parent, child.file_name()?.to_str()?))
+            })
+        else {
             continue;
         };
         if name == MODEL_PARTIAL_RECORD {
@@ -678,16 +692,10 @@ fn forget_moves(tasks: &[(PathBuf, Task)]) -> Result<()> {
         }
     }
     for (partial, names) in staged {
-        let record = partial.join(MODEL_PARTIAL_RECORD);
-        if !std::fs::symlink_metadata(&record)
-            .is_ok_and(|meta| meta.is_file() && !is_reparse(&meta))
-        {
+        let Some(model) = partial.parent().filter(|model| model.starts_with(root)) else {
             continue;
-        }
-        let Some(mut entries) = std::fs::read(&record)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<ModelPartialEntries>(&bytes).ok())
-        else {
+        };
+        let Some(mut entries) = staging_record(model) else {
             continue;
         };
         let before = entries.moved.len();
@@ -701,7 +709,7 @@ fn forget_moves(tasks: &[(PathBuf, Task)]) -> Result<()> {
 
 fn finish_cleanup(root: &Path, (mut cleanup, tasks): CleanupPlan, apply: bool) -> Result<Cleanup> {
     if apply {
-        forget_moves(&tasks)?;
+        forget_moves(root, &tasks)?;
         for (path, task) in tasks {
             let meta = match std::fs::symlink_metadata(&path) {
                 Ok(meta) => meta,
@@ -1024,11 +1032,47 @@ mod tests {
                 Task::File { socket: false },
             ),
         ];
-        forget_moves(&tasks).unwrap();
+        forget_moves(root.path(), &tasks).unwrap();
         let record: ModelPartialEntries =
             serde_json::from_slice(&std::fs::read(partial.join(MODEL_PARTIAL_RECORD)).unwrap())
                 .unwrap();
         assert_eq!(record.moved, vec!["moved".to_owned()]);
+    }
+
+    #[test]
+    fn moves_change_only_in_accepted_records_inside_the_cleanup() {
+        let record = |id: &str| ModelPartialEntries {
+            id: id.into(),
+            files: vec!["work/w.onnx".into()],
+            dirs: Vec::new(),
+            sources: Vec::new(),
+            moved: vec!["work".into()],
+        };
+        let moved = |partial: &Path| {
+            serde_json::from_slice::<ModelPartialEntries>(
+                &std::fs::read(partial.join(MODEL_PARTIAL_RECORD)).unwrap(),
+            )
+            .unwrap()
+            .moved
+        };
+        // A record naming another model is not this folder's.
+        let root = tempfile::tempdir().unwrap();
+        let model = root.path().join("current");
+        let partial = model.join(".partial");
+        std::fs::create_dir_all(partial.join("work")).unwrap();
+        record("previous").save(&partial).unwrap();
+        let tasks = [(partial.join("work/w.onnx"), Task::File { socket: false })];
+        forget_moves(&model, &tasks).unwrap();
+        assert_eq!(moved(&partial), vec!["work".to_owned()]);
+        // A cleanup inside another model's staging leaves that record alone.
+        let other = root.path().join("other");
+        let outer = other.join(".partial");
+        let profile = outer.join("work/profile");
+        std::fs::create_dir_all(&profile).unwrap();
+        record("other").save(&outer).unwrap();
+        let tasks = [(profile.join("config.toml"), Task::File { socket: false })];
+        forget_moves(&profile, &tasks).unwrap();
+        assert_eq!(moved(&outer), vec!["work".to_owned()]);
     }
 
     #[test]

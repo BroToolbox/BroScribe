@@ -384,11 +384,25 @@ function Add-ModelPath($model, $name, $directory) {
   }
 }
 
+$modelBadPath = '(^|/)(\.|\.\.)?(/|$)|\\'
+
+# The staging record of a model folder, if cleanup accepts it as that model's own.
+function Read-StagingRecord($folder) {
+  $partial = [IO.Path]::Combine($folder, '.partial')
+  if (!(Has-Type $partial $true)) { return }
+  $entries = Read-ModelRecord ([IO.Path]::Combine($partial, '.entries.json')) ([IO.Path]::GetFileName($folder))
+  if (!$entries) { return }
+  $paths = @($entries.files) + @($entries.dirs)
+  if ($null -ne $entries.sources) { $paths += @($entries.sources) }
+  if ($null -ne $entries.moved) { $paths += @($entries.moved) }
+  if (@($paths -match $modelBadPath).Count -eq 0) { return $entries }
+}
+
 function Read-ModelShape($folder) {
   $id = [IO.Path]::GetFileName($folder)
   $model = @{ files = @(); dirs = @('.partial'); atomic = @('.verified', '.partial/.entries.json'); literal = $true }
   $record = Read-ModelRecord ([IO.Path]::Combine($folder, '.verified')) $id
-  $badPath = '(^|/)(\.|\.\.)?(/|$)|\\'
+  $badPath = $modelBadPath
   if ($record -and !((@($record.files | ForEach-Object { $_.path }) + @($record.sources | ForEach-Object { $_.file })) -match $badPath)) {
     $model.files += '.verified'
     foreach ($file in $record.files) {
@@ -398,32 +412,28 @@ function Read-ModelShape($folder) {
     foreach ($source in $record.sources) { Add-ModelPath $model ('.partial/' + $source.file) $false }
   }
   $partial = [IO.Path]::Combine($folder, '.partial')
-  if (Has-Type $partial $true) {
-    $entries = Read-ModelRecord ([IO.Path]::Combine($partial, '.entries.json')) $id
-    $paths = @($entries.files) + @($entries.dirs)
-    if ($null -ne $entries.sources) { $paths += @($entries.sources) }
+  $entries = Read-StagingRecord $folder
+  if ($entries) {
     $movedNames = @()
-    if ($null -ne $entries.moved) { $movedNames = @($entries.moved); $paths += $movedNames }
-    if ($entries -and @($paths -match $badPath).Count -eq 0) {
-      $model.files += '.partial/.entries.json'
-      # Install records each top-level entry before renaming it out of
-      # staging. A root name is BroScribe's only once that entry has moved.
-      $moved = {
-        param($name)
-        $top = $name.Split('/')[0]
-        $staged = [IO.Path]::Combine($partial, $top)
-        ($movedNames -ccontains $top) -and !([IO.File]::Exists($staged) -or [IO.Directory]::Exists($staged))
-      }
-      foreach ($file in $entries.files) {
-        Add-ModelPath $model ('.partial/' + $file) $false
-        if (& $moved $file) { Add-ModelPath $model $file $false }
-      }
-      foreach ($dir in $entries.dirs) {
-        Add-ModelPath $model ('.partial/' + $dir) $true
-        if (& $moved $dir) { Add-ModelPath $model $dir $true }
-      }
-      foreach ($source in $entries.sources) { Add-ModelPath $model ('.partial/' + $source) $false }
+    if ($null -ne $entries.moved) { $movedNames = @($entries.moved) }
+    $model.files += '.partial/.entries.json'
+    # Install records each top-level entry before renaming it out of
+    # staging. A root name is BroScribe's only once that entry has moved.
+    $moved = {
+      param($name)
+      $top = $name.Split('/')[0]
+      $staged = [IO.Path]::Combine($partial, $top)
+      ($movedNames -ccontains $top) -and !([IO.File]::Exists($staged) -or [IO.Directory]::Exists($staged))
     }
+    foreach ($file in $entries.files) {
+      Add-ModelPath $model ('.partial/' + $file) $false
+      if (& $moved $file) { Add-ModelPath $model $file $false }
+    }
+    foreach ($dir in $entries.dirs) {
+      Add-ModelPath $model ('.partial/' + $dir) $true
+      if (& $moved $dir) { Add-ModelPath $model $dir $true }
+    }
+    foreach ($source in $entries.sources) { Add-ModelPath $model ('.partial/' + $source) $false }
   }
   return $model
 }
@@ -511,12 +521,13 @@ function Write-CleanupReceipt($path, $status, $lines) {
 # Takes staged entries about to be deleted off their records' moved lists
 # first, so a staged copy removed by an interrupted cleanup never reads as
 # one that install moved to the model root.
-function Clear-ModelMoves($tasks) {
+# Only staging folders inside the cleaned folder, with accepted records, change.
+function Clear-ModelMoves($folder, $tasks) {
   $staged = @{}
   foreach ($task in $tasks) {
     for ($child = $task.path; $child; $child = $parent) {
       $parent = [IO.Path]::GetDirectoryName($child)
-      if (!$parent) { break }
+      if (!$parent -or !(Is-Within $parent $folder)) { break }
       if ([IO.Path]::GetFileName($parent) -ceq '.partial') {
         $name = [IO.Path]::GetFileName($child)
         if ($name -cne '.entries.json') {
@@ -529,7 +540,7 @@ function Clear-ModelMoves($tasks) {
   }
   foreach ($partial in $staged.Keys) {
     $file = [IO.Path]::Combine($partial, '.entries.json')
-    $record = Read-ModelRecord $file ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($partial)))
+    $record = Read-StagingRecord ([IO.Path]::GetDirectoryName($partial))
     if (!$record -or $null -eq $record.moved) { continue }
     $remaining = @(@($record.moved) | Where-Object { !$staged[$partial].Contains([string]$_) })
     if ($remaining.Count -eq @($record.moved).Count) { continue }
@@ -550,7 +561,7 @@ function Remove-Owned($folder, $kind, $skip) {
       $keptParents.Add($parent)
     }
   }
-  Clear-ModelMoves $tasks
+  Clear-ModelMoves $folder $tasks
   foreach ($task in $tasks) {
     if ($task.kind -eq 'file' -and (Has-Type $task.path $false)) {
       [IO.File]::Delete($task.path)
