@@ -470,19 +470,27 @@ fn model_shape(root: &Path) -> Option<Shape> {
         })
     {
         shape.files.push(format!(".partial/{MODEL_PARTIAL_RECORD}"));
-        for path in entries.files {
+        // Install renames each top-level entry out of staging. A root name is
+        // BroScribe's only once its staged entry has moved.
+        let moved = |path: &str| {
+            let top = path.split('/').next().unwrap_or(path);
+            entries.promoting
+                && std::fs::symlink_metadata(partial.join(top))
+                    .is_err_and(|error| error.kind() == ErrorKind::NotFound)
+        };
+        for path in &entries.files {
             add(&mut shape, format!(".partial/{path}"), false);
-            if entries.promoting {
-                add(&mut shape, path, false);
+            if moved(path) {
+                add(&mut shape, path.clone(), false);
             }
         }
-        for path in entries.dirs {
+        for path in &entries.dirs {
             add(&mut shape, format!(".partial/{path}"), true);
-            if entries.promoting {
-                add(&mut shape, path, true);
+            if moved(path) {
+                add(&mut shape, path.clone(), true);
             }
         }
-        for path in entries.sources {
+        for path in &entries.sources {
             add(&mut shape, format!(".partial/{path}"), false);
         }
     }
@@ -904,6 +912,36 @@ mod tests {
         assert!(!partial.join("assets/model.onnx").exists());
         assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
         assert_eq!(std::fs::read(archive).unwrap(), b"synthetic user copy");
+    }
+
+    #[test]
+    fn an_install_owns_only_the_root_entries_it_has_already_moved() {
+        let root = tempfile::tempdir().unwrap();
+        let model = root.path().join("models/synthetic.model");
+        let partial = model.join(".partial");
+        for top in ["moved", "staged"] {
+            std::fs::create_dir_all(model.join(top)).unwrap();
+        }
+        std::fs::create_dir_all(partial.join("staged")).unwrap();
+        std::fs::write(partial.join("staged/w.onnx"), b"staged").unwrap();
+        std::fs::write(model.join("moved/w.onnx"), b"moved").unwrap();
+        let keep = model.join("staged/w.onnx");
+        std::fs::write(&keep, b"synthetic user file").unwrap();
+        ModelPartialEntries {
+            id: "synthetic.model".into(),
+            files: vec!["moved/w.onnx".into(), "staged/w.onnx".into()],
+            dirs: Vec::new(),
+            sources: Vec::new(),
+            promoting: true,
+        }
+        .save(&partial)
+        .unwrap();
+        let cleanup = clean(root.path(), "data", true, &[], false).unwrap();
+        // The unclaimed root folder is kept whole, with the user's file in it.
+        assert_eq!(cleanup.kept, vec![model.join("staged")]);
+        assert!(!model.join("moved").exists());
+        assert!(!partial.join("staged/w.onnx").exists());
+        assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
     }
 
     #[test]

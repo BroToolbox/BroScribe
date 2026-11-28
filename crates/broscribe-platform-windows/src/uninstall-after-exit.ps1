@@ -400,17 +400,25 @@ function Read-ModelShape($folder) {
   $partial = [IO.Path]::Combine($folder, '.partial')
   if (Has-Type $partial $true) {
     $entries = Read-ModelRecord ([IO.Path]::Combine($partial, '.entries.json')) $id
-    if ($entries -and !((@($entries.files) + @($entries.dirs) + @($entries.sources)) -match $badPath)) {
+    $paths = @($entries.files) + @($entries.dirs)
+    if ($null -ne $entries.sources) { $paths += @($entries.sources) }
+    if ($entries -and @($paths -match $badPath).Count -eq 0) {
       $model.files += '.partial/.entries.json'
-      # Root names are BroScribe's only once install has started moving them.
-      $promoting = $entries.promoting -eq $true
+      # Install renames each top-level entry out of staging. A root name is
+      # BroScribe's only once its staged entry has moved.
+      $promoting = $entries.promoting -is [bool] -and $entries.promoting
+      $moved = {
+        param($name)
+        $staged = [IO.Path]::Combine($partial, $name.Split('/')[0])
+        $promoting -and !([IO.File]::Exists($staged) -or [IO.Directory]::Exists($staged))
+      }
       foreach ($file in $entries.files) {
         Add-ModelPath $model ('.partial/' + $file) $false
-        if ($promoting) { Add-ModelPath $model $file $false }
+        if (& $moved $file) { Add-ModelPath $model $file $false }
       }
       foreach ($dir in $entries.dirs) {
         Add-ModelPath $model ('.partial/' + $dir) $true
-        if ($promoting) { Add-ModelPath $model $dir $true }
+        if (& $moved $dir) { Add-ModelPath $model $dir $true }
       }
       foreach ($source in $entries.sources) { Add-ModelPath $model ('.partial/' + $source) $false }
     }

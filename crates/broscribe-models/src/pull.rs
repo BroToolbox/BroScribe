@@ -952,6 +952,49 @@ mod tests {
     }
 
     #[test]
+    fn a_root_file_restored_before_its_staged_copy_moved_is_kept() {
+        let mirror = tempfile::tempdir().unwrap();
+        let model = archive_entry(mirror.path(), &tar_bz2("synthetic", &[("w.onnx", b"w")]));
+        for remove in [false, true] {
+            let data = tempfile::tempdir().unwrap();
+            let store = ModelStore::new(data.path());
+            let dir = store.model_dir(&model.id).unwrap();
+            let partial = dir.join(PARTIAL_DIR);
+            // Install flagged the record, then stopped before its first rename.
+            std::fs::create_dir_all(partial.join("synthetic")).unwrap();
+            std::fs::create_dir_all(dir.join("synthetic")).unwrap();
+            std::fs::write(partial.join("synthetic/w.onnx"), b"w").unwrap();
+            ModelPartialEntries {
+                id: model.id.clone(),
+                files: vec!["synthetic/w.onnx".into()],
+                dirs: Vec::new(),
+                sources: vec!["synthetic.tar.bz2".into()],
+                promoting: true,
+            }
+            .save(&partial)
+            .unwrap();
+            let restored = dir.join("synthetic/w.onnx");
+            std::fs::write(&restored, b"keep").unwrap();
+            if remove {
+                let lock = store.lock_for_removal(&model).unwrap().unwrap();
+                store.remove_model_files(&model).unwrap();
+                drop(lock);
+            } else {
+                let error = pull(
+                    &model,
+                    data.path(),
+                    &opts(mirror.path()),
+                    &mut |_, _| {},
+                    &x(),
+                )
+                .unwrap_err();
+                assert_eq!(error.code(), "model_cache_has_other_files");
+            }
+            assert_eq!(std::fs::read(&restored).unwrap(), b"keep");
+        }
+    }
+
+    #[test]
     fn an_empty_folder_in_an_archive_does_not_block_a_later_download() {
         let data = tempfile::tempdir().unwrap();
         let mirror = tempfile::tempdir().unwrap();

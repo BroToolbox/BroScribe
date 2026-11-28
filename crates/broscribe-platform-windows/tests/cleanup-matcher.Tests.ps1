@@ -63,6 +63,15 @@ try {
     if (!(Matches-CleanupRule $path $promoted 'file')) { throw ('Missing promoted file ' + $path) }
   }
   if (Matches-CleanupRule 'model.tar.bz2' $promoted 'file') { throw 'Claimed the archive at the model root' }
+  [void][IO.Directory]::CreateDirectory((Join-Path $partial 'assets'))
+  $unmoved = Read-ModelShape $model
+  if (Matches-CleanupRule 'assets/model.onnx' $unmoved 'file') { throw 'Claimed a root file before its staged copy moved' }
+  [IO.Directory]::Delete((Join-Path $partial 'assets'))
+  [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"]}')
+  $legacy = Read-ModelShape $model
+  if (!(Matches-CleanupRule '.partial/assets/model.onnx' $legacy 'file')) { throw 'Rejected a v0.1.0 staging record' }
+  if (Matches-CleanupRule 'assets/model.onnx' $legacy 'file') { throw 'A v0.1.0 staging record claimed a root file' }
 
   $profile = Join-Path $temp 'orphan-profile'
   $journal = Join-Path $profile 'journal'
