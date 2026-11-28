@@ -1243,7 +1243,11 @@ pub(crate) fn download_failure(name: &str, error: &CliError) -> String {
     failure_text(
         &format!("Couldn't download {name}."),
         &error.download_text(),
-        "Check your connection, then try again.",
+        if error.code == "model_cache_has_other_files" {
+            ""
+        } else {
+            "Check your connection, then try again."
+        },
     )
 }
 
@@ -1746,6 +1750,7 @@ impl SettingsView {
                     }
                     if this.window_page == Some(SettingsPage::Transcription)
                         && !this.models.loading
+                        && !this.models.doctor_running
                         && !this.model_actions_busy(cx)
                     {
                         this.load_models(cx);
@@ -2865,6 +2870,7 @@ impl SettingsView {
         let generation = self.models.generation;
         self.models.loading = true;
         self.models.error = None;
+        self.models.doctor = None;
         cx.notify();
         let task = self
             .state
@@ -3148,7 +3154,7 @@ impl SettingsView {
         if speaker {
             let config = self.state.read(cx).config();
             let mut effect = String::from(
-                "BroScribe reanalyses saved speakers and voiceprints where audio is available.",
+                "BroScribe rechecks saved voices and speaker matches where audio is available.",
             );
             if config.thresholds(&id).is_none() {
                 effect.push_str(
@@ -7671,6 +7677,50 @@ esac
     }
 
     #[gpui::test]
+    fn a_running_model_verification_survives_window_activation(cx: &mut TestAppContext) {
+        struct OtherWindow;
+        impl Render for OtherWindow {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let (_, settings) = settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
+        let other = cx.update(|cx| {
+            cx.open_window(gpui::WindowOptions::default(), |_, cx| {
+                cx.new(|_| OtherWindow)
+            })
+            .unwrap()
+        });
+        other
+            .update(cx, |_, window, _| window.activate_window())
+            .unwrap();
+        cx.run_until_parked();
+        let generation = settings
+            .update(cx, |this, window, cx| {
+                this.set_page(SettingsPage::Transcription, window, cx);
+                this.models.doctor_running = true;
+                window.activate_window();
+                this.models.generation
+            })
+            .unwrap();
+        cx.run_until_parked();
+        settings
+            .update(cx, |this, window, cx| {
+                assert!(window.is_window_active());
+                assert_eq!(this.models.generation, generation);
+                this.finish_model_check(generation, Ok(serde_json::json!({"ok": true})), cx);
+                assert!(
+                    this.models
+                        .doctor
+                        .as_ref()
+                        .is_some_and(|result| result.is_ok())
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn late_model_verification_cannot_restore_an_old_report(cx: &mut TestAppContext) {
         let dir = tempfile::tempdir().unwrap();
         let (_, window) = settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
@@ -7678,7 +7728,9 @@ esac
             .update(cx, |this, _, cx| {
                 let generation = this.models.generation;
                 this.models.doctor_running = true;
+                this.models.doctor = Some(Ok(serde_json::json!({"ok": true})));
                 this.load_models(cx);
+                assert!(this.models.doctor.is_none());
                 this.finish_model_check(generation, Ok(serde_json::json!({"ok": true})), cx);
                 assert!(this.models.doctor.is_none());
                 assert!(!this.models.doctor_running);

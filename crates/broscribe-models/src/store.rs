@@ -139,10 +139,10 @@ impl ModelStore {
             .map(|(_, report)| report.changed)
     }
 
-    fn removable_dir(&self, id: &str) -> Result<PathBuf> {
+    pub(crate) fn mutable_model_dir(&self, id: &str) -> Result<PathBuf> {
         if std::env::consts::OS == "windows" && id.ends_with('.') {
             return Err(Error::InvalidInput(
-                "Cannot remove a model ID ending in a period on Windows.".into(),
+                "Cannot change cached files for a model ID ending in a period on Windows.".into(),
             ));
         }
         self.model_dir(id)
@@ -153,18 +153,23 @@ impl ModelStore {
         entry: &ModelEntry,
         apply: bool,
     ) -> Result<(bool, broscribe_platform::profile_cleanup::Cleanup)> {
-        let dir = self.removable_dir(&entry.id)?;
+        let dir = self.mutable_model_dir(&entry.id)?;
         if !require_directory(&self.root)? || !require_directory(&dir)? {
             return Ok((false, Default::default()));
         }
-        broscribe_platform::profile_cleanup::clean_model(
+        use broscribe_platform::profile_cleanup::{ModelCleanup, clean_model};
+        clean_model(
             &dir,
             entry
                 .files
                 .iter()
                 .filter(|file| !file.archive)
                 .map(|file| file.file_name().to_owned()),
-            apply,
+            if apply {
+                ModelCleanup::Remove
+            } else {
+                ModelCleanup::Inspect
+            },
         )
     }
 

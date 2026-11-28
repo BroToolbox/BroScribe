@@ -495,17 +495,28 @@ pub fn clean(
     finish_cleanup(root, plan, apply)
 }
 
-/// Removes inventoried model files and pinned loose downloads. The caller
-/// holds the model lock and has checked the live settings. The first boolean
-/// reports whether any known files exist, including when only previewing.
+/// The model operations that share the cache ownership inventory.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ModelCleanup {
+    Inspect,
+    Remove,
+    RestartDownload,
+    InstallDownload,
+}
+
+/// Plans model cache changes using the install and staging inventories.
+/// A download refuses unknown entries before changing anything. Removing a
+/// download leaves unknown entries alone. Callers serialize writes per model.
 pub fn clean_model(
     root: &Path,
     loose_files: impl IntoIterator<Item = String>,
-    apply: bool,
+    mode: ModelCleanup,
 ) -> Result<(bool, Cleanup)> {
     let Some(mut shape) = model_shape(root) else {
         return Ok((false, Cleanup::default()));
     };
+    // The downloader reserves this filename, including a damaged marker.
+    shape.files.push(".verified".into());
     for file in loose_files {
         shape.files.push(format!(".partial/{file}"));
         shape.files.push(file);
@@ -515,26 +526,47 @@ pub fn clean_model(
         .1
         .iter()
         .any(|(_, task)| matches!(task, Task::File { .. }));
-    if !has_files {
-        return Ok((false, plan.0));
+    if mode == ModelCleanup::Inspect || (mode == ModelCleanup::Remove && !has_files) {
+        return Ok((has_files, plan.0));
     }
-    // Keep the ownership records until their payloads are gone, including
-    // when a file is locked and removal has to be retried.
-    if apply {
-        plan.1.sort_by_key(|(path, task)| match task {
-            Task::EmptyDir => (2, std::cmp::Reverse(path.components().count())),
-            Task::File { .. }
-                if matches!(
-                    path.file_name().and_then(|name| name.to_str()),
-                    Some(".verified" | MODEL_PARTIAL_RECORD)
-                ) =>
-            {
-                (1, std::cmp::Reverse(0))
-            }
-            _ => (0, std::cmp::Reverse(0)),
+    if mode != ModelCleanup::Remove
+        && let Some(path) = plan.0.kept.first()
+    {
+        let relative = path.strip_prefix(root).unwrap_or(Path::new(""));
+        let location = if relative.as_os_str().is_empty() {
+            "the model folder".into()
+        } else {
+            format!("the model folder ({})", relative.display())
+        };
+        return Err(Error::Service {
+            code: "model_cache_has_other_files",
+            message: format!(
+                "BroScribe found an unrecognised entry in {location}. Move it out before downloading again."
+            ),
         });
     }
-    finish_cleanup(root, plan, apply).map(|report| (true, report))
+
+    let staging = root.join(".partial");
+    match mode {
+        ModelCleanup::RestartDownload => plan.1.retain(|(path, _)| path.starts_with(&staging)),
+        ModelCleanup::InstallDownload => plan.1.retain(|(path, _)| !path.starts_with(&staging)),
+        _ => {}
+    }
+    // Keep ownership records until their payloads are gone, including when
+    // a locked file causes removal to be retried.
+    plan.1.sort_by_key(|(path, task)| match task {
+        Task::EmptyDir => (2, std::cmp::Reverse(path.components().count())),
+        Task::File { .. }
+            if matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(".verified" | MODEL_PARTIAL_RECORD)
+            ) =>
+        {
+            (1, std::cmp::Reverse(0))
+        }
+        _ => (0, std::cmp::Reverse(0)),
+    });
+    finish_cleanup(root, plan, true).map(|report| (has_files, report))
 }
 
 type CleanupPlan = (Cleanup, Vec<(PathBuf, Task)>);

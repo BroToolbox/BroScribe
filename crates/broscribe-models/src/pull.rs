@@ -18,13 +18,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use broscribe_core::{Error, Result};
-use broscribe_platform::profile_cleanup::{MODEL_PARTIAL_RECORD, ModelPartialEntries};
+use broscribe_platform::profile_cleanup::{
+    MODEL_PARTIAL_RECORD, ModelCleanup, ModelPartialEntries, clean_model,
+};
 
 use crate::execution::ExecutionContext;
 use crate::registry::{ModelEntry, ModelFile};
 use crate::store::{
-    Health, InstalledFile, ModelLock, ModelStore, PARTIAL_DIR, SourceHash, VERIFIED_MARKER,
-    VerifiedMarker, copy_hashing,
+    Health, InstalledFile, ModelLock, ModelStore, PARTIAL_DIR, SourceHash, VerifiedMarker,
+    copy_hashing,
 };
 
 /// Local folder checked for a file before downloading it.
@@ -131,14 +133,14 @@ pub fn pull(
         check_file_name(entry, f)?;
     }
     let store = ModelStore::new(data_dir);
-    let dir = store.model_dir(&entry.id)?;
+    let dir = store.mutable_model_dir(&entry.id)?;
     let _lock = lock_model(&store, &entry.id, stop)?;
     if !opts.force && store.doctor(entry, false)? == Health::Installed {
         return Ok(PullOutcome::AlreadyInstalled);
     }
 
     let partial = dir.join(PARTIAL_DIR);
-    remove_dir_if_exists(&partial)?;
+    clean_download(&dir, entry, ModelCleanup::RestartDownload)?;
     std::fs::create_dir_all(&partial).map_err(|e| Error::io_at(&partial, e))?;
 
     // The last stop check: `install` replaces the earlier install.
@@ -150,7 +152,7 @@ pub fn pull(
     let files = match staged {
         Ok(files) => files,
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&partial);
+            let _ = clean_download(&dir, entry, ModelCleanup::RestartDownload);
             return Err(e);
         }
     };
@@ -341,28 +343,7 @@ fn install(
     partial: &Path,
     files: Vec<InstalledFile>,
 ) -> Result<()> {
-    let marker_path = dir.join(VERIFIED_MARKER);
-    match std::fs::remove_file(&marker_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(Error::io_at(&marker_path, e)),
-    }
-    for item in read_dir(dir)? {
-        if item.file_name() == PARTIAL_DIR {
-            continue;
-        }
-        let path = item.path();
-        let is_dir = item
-            .file_type()
-            .map_err(|e| Error::io_at(&path, e))?
-            .is_dir();
-        if is_dir {
-            std::fs::remove_dir_all(&path)
-        } else {
-            std::fs::remove_file(&path)
-        }
-        .map_err(|e| Error::io_at(&path, e))?;
-    }
+    clean_download(dir, entry, ModelCleanup::InstallDownload)?;
     for item in read_dir(partial)? {
         if item.file_name() == MODEL_PARTIAL_RECORD {
             continue;
@@ -383,7 +364,13 @@ fn install(
             .collect(),
         files,
     })?;
-    std::fs::remove_dir_all(partial).map_err(|e| Error::io_at(partial, e))
+    let record = partial.join(MODEL_PARTIAL_RECORD);
+    std::fs::remove_file(&record).map_err(|error| Error::io_at(&record, error))?;
+    match std::fs::remove_dir(partial) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(()),
+        Err(error) => Err(Error::io_at(partial, error)),
+    }
 }
 
 fn read_dir(dir: &Path) -> Result<Vec<std::fs::DirEntry>> {
@@ -392,12 +379,17 @@ fn read_dir(dir: &Path) -> Result<Vec<std::fs::DirEntry>> {
         .map_err(|e| Error::io_at(dir, e))
 }
 
-fn remove_dir_if_exists(dir: &Path) -> Result<()> {
-    match std::fs::remove_dir_all(dir) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(Error::io_at(dir, e)),
-    }
+fn clean_download(dir: &Path, entry: &ModelEntry, mode: ModelCleanup) -> Result<()> {
+    clean_model(
+        dir,
+        entry
+            .files
+            .iter()
+            .filter(|file| !file.archive)
+            .map(|file| file.file_name().to_owned()),
+        mode,
+    )?;
+    Ok(())
 }
 
 /// A download's file name must be a plain name that cannot collide with the
@@ -840,6 +832,77 @@ mod tests {
         let store = ModelStore::new(data.path());
         assert_eq!(store.doctor(&e, false).unwrap(), Health::Missing);
         assert!(!store.model_dir("tiny").unwrap().join(PARTIAL_DIR).exists());
+    }
+
+    #[test]
+    fn redownload_keeps_unrelated_files_left_by_removal() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let bytes = b"model";
+        std::fs::write(mirror.path().join("weights.onnx"), bytes).unwrap();
+        let entry = entry("tiny", vec![plain("weights.onnx", bytes)]);
+        let store = ModelStore::new(data.path());
+        let dir = store.model_dir(&entry.id).unwrap();
+        for relative in ["notes.txt", ".partial/notes.txt"] {
+            let options = opts(mirror.path());
+            assert_eq!(
+                pull(&entry, data.path(), &options, &mut |_, _| {}, &x()).unwrap(),
+                PullOutcome::Installed
+            );
+            let unknown = dir.join(relative);
+            std::fs::create_dir_all(unknown.parent().unwrap()).unwrap();
+            std::fs::write(&unknown, b"keep").unwrap();
+            let lock = store.lock_for_removal(&entry).unwrap().unwrap();
+            assert!(store.remove_model_files(&entry).unwrap());
+            drop(lock);
+            let error = pull(&entry, data.path(), &options, &mut |_, _| {}, &x()).unwrap_err();
+            assert_eq!(error.code(), "model_cache_has_other_files");
+            assert!(error.to_string().contains("notes.txt"));
+            assert_eq!(std::fs::read(&unknown).unwrap(), b"keep");
+            assert!(!store.is_installed(&entry.id));
+            std::fs::remove_file(unknown).unwrap();
+        }
+        assert_eq!(
+            pull(
+                &entry,
+                data.path(),
+                &opts(mirror.path()),
+                &mut |_, _| {},
+                &x()
+            )
+            .unwrap(),
+            PullOutcome::Installed
+        );
+    }
+
+    #[test]
+    fn an_unrelated_file_added_during_a_pull_preserves_the_previous_install() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let old = b"earlier model";
+        let new = b"new model";
+        let name = "weights.onnx";
+        let prior = entry("tiny", vec![plain(name, old)]);
+        std::fs::write(mirror.path().join(name), old).unwrap();
+        let options = opts(mirror.path());
+        pull(&prior, data.path(), &options, &mut |_, _| {}, &x()).unwrap();
+        let replacement = entry("tiny", vec![plain(name, new)]);
+        std::fs::write(mirror.path().join(name), new).unwrap();
+        let store = ModelStore::new(data.path());
+        let dir = store.model_dir(&prior.id).unwrap();
+        let unknown = dir.join("notes.txt");
+        let error = pull(
+            &replacement,
+            data.path(),
+            &options,
+            &mut |_, _| std::fs::write(&unknown, b"keep").unwrap(),
+            &x(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "model_cache_has_other_files");
+        assert_eq!(std::fs::read(&unknown).unwrap(), b"keep");
+        assert_eq!(std::fs::read(dir.join(name)).unwrap(), old);
+        assert_eq!(store.doctor(&prior, true).unwrap(), Health::Installed);
     }
 
     #[test]
