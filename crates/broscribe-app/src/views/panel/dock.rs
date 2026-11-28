@@ -87,7 +87,8 @@ pub struct DockInputs<'a> {
 /// One person of the call.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DockPerson {
-    /// Stable identity for ordering: the folded name (the ID without one).
+    /// Stable identity for ordering and clicks: the person ID, else the
+    /// e-mail, else the folded name.
     pub key: String,
     pub name: String,
     pub person_id: Option<String>,
@@ -96,20 +97,40 @@ pub struct DockPerson {
     pub has_voice: bool,
     /// The registered person's colour; `None` for a name nobody has yet.
     pub hue: Option<u8>,
+    /// Not registered, and their name is someone else's too (another chip
+    /// or a registered person): a chip can't tell which person it means,
+    /// and the agent would take the name for the registered one
+    /// (*Someone new…* can choose).
+    pub ambiguous: bool,
+    /// Their place in the recording's order ([`stable_order`]).
+    pub slot: usize,
 }
 
 impl DockPerson {
-    /// What `record.live_attribute` names: the ID, else the e-mail, else
-    /// the plain name (a name-only person when nobody has it).
-    pub fn person_ref(&self) -> String {
-        self.person_id
-            .clone()
-            .or_else(|| self.email.clone())
-            .unwrap_or_else(|| self.name.clone())
+    /// What `record.live_attribute` names: the ID, else the plain name (a
+    /// name-only person when nobody has it). Never an e-mail: the agent
+    /// names only registered people by e-mail. `None` for an ambiguous name.
+    pub fn person_ref(&self) -> Option<String> {
+        match &self.person_id {
+            Some(id) => Some(id.clone()),
+            None if self.ambiguous => None,
+            None => Some(self.name.clone()),
+        }
     }
 
     pub fn first_name(&self) -> &str {
         first_name(&self.name)
+    }
+
+    /// Who a click on this chip means: its key and the person it resolved
+    /// to now. A press keeps it, so a chip that comes to mean someone else
+    /// is another button.
+    pub fn identity(&self) -> String {
+        format!(
+            "{}/{}",
+            self.key,
+            self.person_id.as_deref().unwrap_or_default()
+        )
     }
 
     fn is(&self, person: &LivePerson) -> bool {
@@ -133,16 +154,20 @@ fn same_name(a: &str, b: &str) -> bool {
 }
 
 /// The registered person a roster entry stands for: the same e-mail, else
-/// the only person with that (folded) name.
+/// the only person with that (folded) name, unless both have e-mails and
+/// they differ (a namesake).
 fn resolve<'a>(member: &RosterMember, known: &'a [KnownPerson]) -> Option<&'a KnownPerson> {
-    if let Some(email) = member.email.as_deref().filter(|e| !e.is_empty())
+    let email = member.email.as_deref().filter(|e| !e.is_empty());
+    if let Some(email) = email
         && let Some(person) = known
             .iter()
             .find(|p| p.emails.iter().any(|e| e.eq_ignore_ascii_case(email)))
     {
         return Some(person);
     }
-    let mut named = known.iter().filter(|p| same_name(&p.name, &member.name));
+    let mut named = known
+        .iter()
+        .filter(|p| same_name(&p.name, &member.name) && (email.is_none() || p.emails.is_empty()));
     match (named.next(), named.next()) {
         (Some(person), None) => Some(person),
         _ => None,
@@ -153,6 +178,9 @@ struct Candidate {
     name: String,
     person_id: Option<String>,
     email: Option<String>,
+    /// The registered person's e-mails: a namesake listed under another
+    /// e-mail is someone else.
+    emails: Vec<String>,
     source: ChipSource,
     has_voice: bool,
     hue: Option<u8>,
@@ -166,7 +194,12 @@ fn merge(people: &mut Vec<DockPerson>, c: Candidate) {
                     .as_deref()
                     .zip(p.email.as_deref())
                     .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b)))
-            || ((p.person_id.is_none() || c.person_id.is_none()) && same_name(&p.name, &c.name))
+            || ((p.person_id.is_none() || c.person_id.is_none())
+                && (p.email.is_none() || c.email.is_none())
+                && !p.email.as_deref().is_some_and(|e| {
+                    !c.emails.is_empty() && !c.emails.iter().any(|k| k.eq_ignore_ascii_case(e))
+                })
+                && same_name(&p.name, &c.name))
     });
     match found {
         Some(p) => {
@@ -181,9 +214,11 @@ fn merge(people: &mut Vec<DockPerson>, c: Candidate) {
             }
         }
         None => {
-            let key = Some(folded_name(&c.name))
-                .filter(|k| !k.is_empty())
-                .or_else(|| c.person_id.clone())
+            let key = c
+                .person_id
+                .clone()
+                .or_else(|| c.email.as_deref().map(str::to_lowercase))
+                .or_else(|| Some(folded_name(&c.name)).filter(|k| !k.is_empty()))
                 .unwrap_or_default();
             if key.is_empty() {
                 return;
@@ -196,6 +231,8 @@ fn merge(people: &mut Vec<DockPerson>, c: Candidate) {
                 sources: BTreeSet::from([c.source]),
                 has_voice: c.has_voice,
                 hue: c.hue,
+                ambiguous: false,
+                slot: 0,
             });
         }
     }
@@ -220,7 +257,13 @@ pub fn people(inputs: DockInputs<'_>) -> Vec<DockPerson> {
         .chain(inputs.expected.iter().map(|m| (m, ChipSource::Calendar)));
     for (member, source) in roster {
         let person = resolve(member, inputs.known);
-        if member.is_self || person.is_some_and(|p| p.is_self) || member.name.trim().is_empty() {
+        // An e-mail nobody registered can't be named from a chip.
+        let email_only = person.is_none() && member.name.contains('@');
+        if member.is_self
+            || person.is_some_and(|p| p.is_self)
+            || member.name.trim().is_empty()
+            || email_only
+        {
             continue;
         }
         merge(
@@ -229,6 +272,7 @@ pub fn people(inputs: DockInputs<'_>) -> Vec<DockPerson> {
                 name: person.map_or_else(|| member.name.trim().to_owned(), |p| p.name.clone()),
                 person_id: person.map(|p| p.id.clone()),
                 email: member.email.clone().filter(|e| !e.is_empty()),
+                emails: person.map(|p| p.emails.clone()).unwrap_or_default(),
                 source,
                 has_voice: person.is_some_and(|p| p.has_voice),
                 hue: person.map(|p| p.hue),
@@ -245,6 +289,7 @@ pub fn people(inputs: DockInputs<'_>) -> Vec<DockPerson> {
                 name: name.clone(),
                 person_id: Some(id.clone()),
                 email: None,
+                emails: known(id).map(|p| p.emails.clone()).unwrap_or_default(),
                 source: ChipSource::Attended,
                 has_voice: known(id).is_some_and(|p| p.has_voice),
                 hue: known(id).map(|p| p.hue),
@@ -277,6 +322,9 @@ pub fn people(inputs: DockInputs<'_>) -> Vec<DockPerson> {
                 name: person.name.clone(),
                 person_id: Some(person.person_id.clone()),
                 email: None,
+                emails: known(&person.person_id)
+                    .map(|p| p.emails.clone())
+                    .unwrap_or_default(),
                 source,
                 has_voice: source == ChipSource::KnownVoice
                     || known(&person.person_id).is_some_and(|p| p.has_voice),
@@ -284,18 +332,92 @@ pub fn people(inputs: DockInputs<'_>) -> Vec<DockPerson> {
             },
         );
     }
+    // A name the chips can't resolve to one person.
+    let namesakes = |p: &DockPerson| {
+        out.iter().filter(|o| same_name(&o.name, &p.name)).count() > 1
+            || inputs.known.iter().any(|k| same_name(&k.name, &p.name))
+    };
+    let ambiguous: Vec<bool> = out
+        .iter()
+        .map(|p| p.person_id.is_none() && namesakes(p))
+        .collect();
+    for (person, ambiguous) in out.iter_mut().zip(ambiguous) {
+        person.ambiguous = ambiguous;
+    }
     out
 }
 
-/// Puts `people` in first-seen order: `order` remembers every key listed so
-/// far in this recording and grows at the end only.
-pub fn stable_order(order: &mut Vec<String>, mut people: Vec<DockPerson>) -> Vec<DockPerson> {
-    for person in &people {
-        if !order.contains(&person.key) {
-            order.push(person.key.clone());
+/// Someone listed earlier in this recording, by what identified them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DockSlot {
+    person_id: Option<String>,
+    email: Option<String>,
+    name: String,
+}
+
+/// How strongly a slot holds someone, strongest first.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Match {
+    Id,
+    Email,
+    Name,
+}
+
+impl DockSlot {
+    /// The same person by `how`: same ID, same e-mail or same name, never
+    /// across two different IDs or e-mails.
+    fn holds(&self, p: &DockPerson, how: Match) -> bool {
+        let same = |a: &Option<String>, b: &Option<String>| match (a, b) {
+            (Some(a), Some(b)) => Some(a.eq_ignore_ascii_case(b)),
+            _ => None,
+        };
+        let id = same(&self.person_id, &p.person_id);
+        let email = same(&self.email, &p.email);
+        match how {
+            Match::Id => id == Some(true),
+            Match::Email => id != Some(false) && email == Some(true),
+            Match::Name => {
+                id.is_none()
+                    && email.is_none()
+                    && !self.name.is_empty()
+                    && self.name == folded_name(&p.name)
+            }
         }
     }
-    people.sort_by_key(|p| order.iter().position(|k| *k == p.key));
+}
+
+/// Puts `people` in first-seen order and sets their `slot`: `order`
+/// remembers everyone listed so far in this recording, grows at the end
+/// only, and keeps someone's slot when they become a registered person.
+pub fn stable_order(order: &mut Vec<DockSlot>, mut people: Vec<DockPerson>) -> Vec<DockPerson> {
+    // Exact IDs claim their slots first, then e-mails, then names.
+    let mut taken = BTreeSet::new();
+    let mut found: Vec<Option<usize>> = vec![None; people.len()];
+    for how in [Match::Id, Match::Email, Match::Name] {
+        for (person, found) in people.iter().zip(found.iter_mut()) {
+            if found.is_none() {
+                *found = (0..order.len())
+                    .find(|ix| !taken.contains(ix) && order[*ix].holds(person, how));
+                taken.extend(*found);
+            }
+        }
+    }
+    for (person, found) in people.iter_mut().zip(found) {
+        let ix = found.unwrap_or_else(|| {
+            order.push(DockSlot::default());
+            order.len() - 1
+        });
+        let slot = &mut order[ix];
+        if slot.person_id.is_none() {
+            slot.person_id = person.person_id.clone();
+        }
+        if slot.email.is_none() {
+            slot.email = person.email.clone();
+        }
+        slot.name = folded_name(&person.name);
+        person.slot = ix;
+    }
+    people.sort_by_key(|p| p.slot);
     people
 }
 
@@ -428,7 +550,8 @@ pub fn chip_state(person: &DockPerson, turns: &[LiveTurn], target: Option<&LiveT
 pub struct Chip {
     pub person: DockPerson,
     pub state: ChipState,
-    /// "1"–"4" for the first [`DOCK_KEYS`] people.
+    /// "1"–"4" for the first [`DOCK_KEYS`] people of the recording; a key
+    /// whose person left stays unused rather than moving to someone else.
     pub key: Option<usize>,
 }
 
@@ -465,14 +588,14 @@ impl Chip {
     }
 }
 
-/// The chips in order, with their keys.
+/// The chips in order, with their keys: a person's slot (see
+/// [`stable_order`]), so a key never moves to someone else.
 pub fn chips(people: Vec<DockPerson>, turns: &[LiveTurn], target: Option<&LiveTurn>) -> Vec<Chip> {
     people
         .into_iter()
-        .enumerate()
-        .map(|(ix, person)| Chip {
+        .map(|person| Chip {
             state: chip_state(&person, turns, target),
-            key: (ix < DOCK_KEYS).then_some(ix),
+            key: (person.slot < DOCK_KEYS).then_some(person.slot),
             person,
         })
         .collect()
@@ -491,13 +614,16 @@ pub fn key_index(key: &str, modified: bool) -> Option<usize> {
 /// that person, nothing when the turn already carries their name, else
 /// Name.
 pub fn tap(person: &DockPerson, turn: &LiveTurn) -> Option<(LiveAction, String)> {
+    if person.ambiguous {
+        return None;
+    }
     if let Some(suggested) = suggested_person(turn).filter(|p| person.is(p)) {
         return Some((LiveAction::Confirm, suggested.person_id.clone()));
     }
     if turn.status == LiveTurnStatus::Named && turn.named.as_ref().is_some_and(|p| person.is(p)) {
         return None;
     }
-    Some((LiveAction::Name, person.person_ref()))
+    Some((LiveAction::Name, person.person_ref()?))
 }
 
 #[cfg(test)]
@@ -569,6 +695,10 @@ mod tests {
         t
     }
 
+    fn keys(people: &[DockPerson]) -> Vec<String> {
+        people.iter().map(|p| p.key.clone()).collect()
+    }
+
     fn names(people: &[DockPerson]) -> Vec<&str> {
         people.iter().map(|p| p.name.as_str()).collect()
     }
@@ -628,8 +758,8 @@ mod tests {
             iris.sources,
             BTreeSet::from([ChipSource::Call, ChipSource::Calendar])
         );
-        // Unregistered: the e-mail is what names them.
-        assert_eq!(people[1].person_ref(), "noor@example.test");
+        // Unregistered: the name is what names them, never the e-mail.
+        assert_eq!(people[1].person_ref().as_deref(), Some("Noor Haddad"));
         assert!(people[3].has_voice);
     }
 
@@ -646,7 +776,10 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(people[0].person_id, None);
-        assert_eq!(people[0].person_ref(), "Sam Lee");
+        // Which Sam? A chip can't tell; Someone new… can.
+        assert!(people[0].ambiguous);
+        assert_eq!(people[0].person_ref(), None);
+        assert_eq!(tap(&people[0], &turn("t", 1.0, Track::System)), None);
     }
 
     #[test]
@@ -675,6 +808,8 @@ mod tests {
             sources: BTreeSet::new(),
             has_voice: false,
             hue: None,
+            ambiguous: false,
+            slot: 0,
         };
         let mut order = Vec::new();
         let first = stable_order(&mut order, vec![p("Iris"), p("Noor")]);
@@ -687,6 +822,45 @@ mod tests {
         assert_eq!(names(&third), ["Iris", "Ben"]);
         let fourth = stable_order(&mut order, vec![p("Ben"), p("Noor"), p("Iris")]);
         assert_eq!(names(&fourth), ["Iris", "Noor", "Ben"]);
+        // Noor becomes a registered person: same slot, same key.
+        let noor = DockPerson {
+            person_id: Some("p-noor".into()),
+            ..p("Noor")
+        };
+        let fifth = stable_order(&mut order, vec![p("Ben"), noor, p("Iris")]);
+        let slots: Vec<_> = fifth.iter().map(|p| (p.name.as_str(), p.slot)).collect();
+        assert_eq!(slots, [("Iris", 0), ("Noor", 1), ("Ben", 2)]);
+    }
+
+    #[test]
+    fn an_invitee_keeps_their_slot_when_their_e_mail_resolves() {
+        let expected = [
+            member("Noor Haddad", Some("noor@example.test")),
+            member("Ben Okafor", None),
+        ];
+        let mut order = Vec::new();
+        let before = stable_order(
+            &mut order,
+            people(DockInputs {
+                expected: &expected,
+                ..Default::default()
+            }),
+        );
+        assert_eq!(before[0].person_id, None);
+        // The people list arrives: Noor is registered under that e-mail.
+        let known = [known("p-noor", "Noor Haddad", "noor@example.test", false)];
+        let after = stable_order(
+            &mut order,
+            people(DockInputs {
+                expected: &expected,
+                known: &known,
+                ..Default::default()
+            }),
+        );
+        assert_eq!(after[0].person_id.as_deref(), Some("p-noor"));
+        let slots: Vec<_> = after.iter().map(|p| p.slot).collect();
+        assert_eq!(slots, [0, 1]);
+        assert_eq!(order.len(), 2);
     }
 
     #[test]
@@ -724,6 +898,7 @@ mod tests {
             ..Default::default()
         });
         // No target: plain counts.
+        let people = stable_order(&mut Vec::new(), people);
         let lines: Vec<String> = chips(people.clone(), &turns, None)
             .iter()
             .map(Chip::line)
@@ -754,16 +929,177 @@ mod tests {
             .iter()
             .map(|n| member(n, None))
             .collect();
-        let chips = chips(
+        let people = people(DockInputs {
+            observed: &observed,
+            ..Default::default()
+        });
+        let mut order = Vec::new();
+        let listed = stable_order(&mut order, people.clone());
+        let first = chips(listed, &[], None);
+        let shortcuts: Vec<_> = first.iter().map(|c| c.key).collect();
+        assert_eq!(shortcuts, [Some(0), Some(1), Some(2), Some(3), None]);
+        // B leaves the call: 2 stays unused, nobody else takes it.
+        let without_b: Vec<_> = people.into_iter().filter(|p| p.name != "B b").collect();
+        let listed = stable_order(&mut order, without_b);
+        let shortcuts: Vec<_> = chips(listed, &[], None).iter().map(|c| c.key).collect();
+        assert_eq!(shortcuts, [Some(0), Some(2), Some(3), None]);
+    }
+
+    #[test]
+    fn an_unregistered_email_only_invitee_is_not_listed() {
+        let expected = [member("noor@example.test", Some("noor@example.test"))];
+        let known = [known("p-ben", "Ben Okafor", "ben@example.test", false)];
+        let registered = [member("ben@example.test", Some("ben@example.test"))];
+        let people = people(DockInputs {
+            expected: &expected,
+            observed: &registered,
+            known: &known,
+            ..Default::default()
+        });
+        assert_eq!(names(&people), ["Ben Okafor"]);
+        assert_eq!(people[0].person_ref().as_deref(), Some("p-ben"));
+    }
+
+    #[test]
+    fn namesakes_stay_apart_with_their_own_keys() {
+        let known = [
+            known("p-1", "Sam Lee", "a@example.test", false),
+            known("p-2", "Sam Lee", "b@example.test", false),
+        ];
+        let observed = [
+            member("Sam Lee", Some("a@example.test")),
+            member("Sam Lee", Some("b@example.test")),
+            member("Kai Moe", Some("k1@example.test")),
+            member("Kai Moe", Some("k2@example.test")),
+        ];
+        let people = people(DockInputs {
+            observed: &observed,
+            known: &known,
+            ..Default::default()
+        });
+        assert_eq!(
+            keys(&people),
+            ["p-1", "p-2", "k1@example.test", "k2@example.test"]
+        );
+        assert_eq!(people[1].person_ref().as_deref(), Some("p-2"));
+        // Two unregistered Kais: neither chip can name one of them.
+        assert!(people[2].ambiguous && people[3].ambiguous);
+        assert_eq!(people[2].person_ref(), None);
+        let slots: Vec<_> = stable_order(&mut Vec::new(), people)
+            .iter()
+            .map(|p| p.slot)
+            .collect();
+        assert_eq!(slots, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn an_unlisted_registered_namesake_makes_a_name_ambiguous() {
+        // Only the invitee with e-mail b is in the call; the name alone
+        // would name the registered Sam (a).
+        let known = [known("p-1", "Sam Lee", "a@example.test", false)];
+        let observed = [member("Sam Lee", Some("b@example.test"))];
+        let people = people(DockInputs {
+            observed: &observed,
+            known: &known,
+            ..Default::default()
+        });
+        assert_eq!(people[0].person_id, None);
+        assert!(people[0].ambiguous);
+        // Even when the turn suggests the registered namesake, no key or
+        // tap confirms or names through this chip.
+        let sugg = suggested(
+            turn("t", 1.0, Track::System),
+            lp("p-1", "Sam Lee"),
+            SuggestionSource::Session,
+        );
+        assert_eq!(tap(&people[0], &sugg), None);
+    }
+
+    #[test]
+    fn a_registered_namesakes_voice_is_not_the_guests_chip() {
+        // The guest Sam (b) is in the call; the library suggests the
+        // registered Sam (a) on a turn.
+        let known = [known("p-1", "Sam Lee", "a@example.test", true)];
+        let observed = [member("Sam Lee", Some("b@example.test"))];
+        let turns = [suggested(
+            turn("t", 1.0, Track::System),
+            lp("p-1", "Sam Lee"),
+            SuggestionSource::Library,
+        )];
+        let people = people(DockInputs {
+            observed: &observed,
+            turns: &turns,
+            known: &known,
+            ..Default::default()
+        });
+        assert_eq!(people.len(), 2);
+        assert_eq!(people[0].person_id, None);
+        assert_eq!(people[0].email.as_deref(), Some("b@example.test"));
+        assert_eq!(tap(&people[0], &turns[0]), None);
+        assert_eq!(people[1].person_id.as_deref(), Some("p-1"));
+        assert_eq!(
+            tap(&people[1], &turns[0]),
+            Some((LiveAction::Confirm, "p-1".into()))
+        );
+    }
+
+    #[test]
+    fn a_chip_that_comes_to_mean_someone_else_is_another_button() {
+        let observed = [member("Sam Lee", None)];
+        let as_of = |id: &str| {
+            let turns = [named(turn("t", 1.0, Track::System), lp(id, "Sam Lee"))];
             people(DockInputs {
                 observed: &observed,
+                turns: &turns,
                 ..Default::default()
-            }),
-            &[],
-            None,
+            })[0]
+                .identity()
+        };
+        assert_ne!(as_of("p-a"), as_of("p-b"));
+    }
+
+    #[test]
+    fn an_exact_id_keeps_its_slot_before_a_name_takes_it() {
+        let p = |id: Option<&str>, email: Option<&str>| DockPerson {
+            key: "sam lee".into(),
+            name: "Sam Lee".into(),
+            person_id: id.map(Into::into),
+            email: email.map(Into::into),
+            sources: BTreeSet::new(),
+            has_voice: false,
+            hue: None,
+            ambiguous: false,
+            slot: 0,
+        };
+        let mut order = Vec::new();
+        stable_order(
+            &mut order,
+            vec![
+                p(None, Some("a@example.test")),
+                p(Some("p-b"), Some("b@example.test")),
+            ],
         );
-        let keys: Vec<_> = chips.iter().map(|c| c.key).collect();
-        assert_eq!(keys, [Some(0), Some(1), Some(2), Some(3), None]);
+        // Only the confirmed p-b remains, without an e-mail: slot 2 (key 2).
+        let later = stable_order(&mut order, vec![p(Some("p-b"), None)]);
+        assert_eq!(later[0].slot, 1);
+    }
+
+    #[test]
+    fn a_namesake_with_another_e_mail_is_not_the_registered_one() {
+        let known = [known("p-1", "Sam Lee", "a@example.test", false)];
+        let observed = [
+            member("Sam Lee", Some("a@example.test")),
+            member("Sam Lee", Some("b@example.test")),
+        ];
+        let people = people(DockInputs {
+            observed: &observed,
+            known: &known,
+            ..Default::default()
+        });
+        assert_eq!(people.len(), 2);
+        assert_eq!(people[0].person_id.as_deref(), Some("p-1"));
+        assert_eq!(people[1].person_id, None);
+        assert!(people[1].ambiguous);
     }
 
     #[test]
@@ -836,6 +1172,8 @@ mod tests {
             sources: BTreeSet::new(),
             has_voice: false,
             hue: None,
+            ambiguous: false,
+            slot: 0,
         };
         let tomas = person(Some("p-tomas"), "Tomás Reyes");
         let noor = person(None, "Noor Haddad");

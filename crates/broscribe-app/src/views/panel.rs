@@ -1611,7 +1611,7 @@ pub struct RecordingPanel {
     dock_target: dock::DockTarget,
     /// The order people were first listed in, for the dock's session: the
     /// number keys keep pointing at the same person.
-    dock_order: (Option<String>, Vec<String>),
+    dock_order: (Option<String>, Vec<dock::DockSlot>),
     /// Registered people for the dock, and the people revision they were
     /// read at (or are being read at).
     dock_known: Rc<Vec<dock::KnownPerson>>,
@@ -4019,13 +4019,14 @@ mod tests {
             ),
             (LiveAction::Confirm, "system-16000", Some("p-ana"))
         );
-        // 2: Noor (not registered) is named by her e-mail; never a reject.
+        // 2: Noor (not registered) is named by name, never by an e-mail the
+        // agent doesn't know; never a reject.
         vcx.simulate_keystrokes("2");
         vcx.run_until_parked();
         assert!(matches!(
             &h.agent.calls()[1],
             Call::RecordLiveAttribute(p) if p.action == LiveAction::Name
-                && p.person_ref.as_deref() == Some("noor@example.test")
+                && p.person_ref.as_deref() == Some("Noor Example")
                 && p.revision == 3
         ));
         // 5 is no person's key.
@@ -4056,6 +4057,50 @@ mod tests {
                 .update(cx, |view, _, _| view.live_naming.is_none())
                 .unwrap()
         );
+        // With its picker open, a chip names that older turn and closes it;
+        // a click from an earlier recording names nothing.
+        h.act(cx, |view, window, cx| {
+            view.open_live_naming("system-8000", window, cx)
+        });
+        h.act(cx, |view, window, cx| {
+            view.dock_pick(
+                dock_view::DockPick::Click {
+                    person: "ben@example.test/".into(),
+                    session: "s0".into(),
+                    turn: "system-8000".into(),
+                },
+                window,
+                cx,
+            )
+        });
+        assert_eq!(h.agent.calls().len(), 2);
+        h.act(cx, |view, window, cx| {
+            view.dock_pick(
+                dock_view::DockPick::Click {
+                    person: "ben@example.test/".into(),
+                    session: "s1".into(),
+                    turn: "system-8000".into(),
+                },
+                window,
+                cx,
+            )
+        });
+        assert!(matches!(
+            &h.agent.calls()[2],
+            Call::RecordLiveAttribute(p) if p.action == LiveAction::Name
+                && p.turn_id == "system-8000"
+                && p.person_ref.as_deref() == Some("Ben Example")
+        ));
+        let (target, retargeted, _) = dock(&h, cx);
+        assert_eq!(
+            (target.as_deref(), retargeted),
+            (Some("system-16000"), false)
+        );
+        assert!(
+            h.window
+                .update(cx, |view, _, _| view.live_naming.is_none())
+                .unwrap()
+        );
 
         // Your microphone speaking: nothing to name.
         h.event(
@@ -4066,7 +4111,47 @@ mod tests {
         vcx.update(|window, cx| focus.focus(window, cx));
         vcx.simulate_keystrokes("3");
         vcx.run_until_parked();
-        assert_eq!(h.agent.calls().len(), 2, "{:?}", h.agent.calls());
+        assert_eq!(h.agent.calls().len(), 3, "{:?}", h.agent.calls());
+    }
+
+    /// A chip pressed on one turn and released after another started names
+    /// nobody; a whole click on the new turn names that turn.
+    #[gpui::test]
+    fn a_dock_press_names_only_the_turn_it_started_on(cx: &mut TestAppContext) {
+        use gpui::VisualTestContext;
+        let h = Harness::new(cx);
+        live_agent(&h, |_| Err(refusal("not answered in this test (internal)")));
+        h.event(
+            cx,
+            recording_with("s1", |r| {
+                r.observed_roster = vec![broscribe_readers::RosterMember {
+                    name: "Iris Example".into(),
+                    email: None,
+                    is_self: false,
+                }];
+            }),
+        );
+        let mut vcx = VisualTestContext::from_window(h.window.into(), cx);
+        let chip = vcx
+            .debug_bounds("dock-person-0")
+            .expect("the first chip is shown");
+        vcx.simulate_mouse_down(chip.center(), gpui::MouseButton::Left, Default::default());
+        h.event(
+            &mut vcx,
+            live_event(live_turn("system-48000", 1, "voice", json!({ "voice": 4 }))),
+        );
+        vcx.run_until_parked();
+        vcx.simulate_mouse_up(chip.center(), gpui::MouseButton::Left, Default::default());
+        vcx.run_until_parked();
+        assert!(h.agent.calls().is_empty(), "{:?}", h.agent.calls());
+        let chip = vcx.debug_bounds("dock-person-0").unwrap();
+        vcx.simulate_click(chip.center(), Default::default());
+        vcx.run_until_parked();
+        assert!(matches!(
+            &h.agent.calls()[..],
+            [Call::RecordLiveAttribute(p)] if p.turn_id == "system-48000"
+                && p.person_ref.as_deref() == Some("Iris Example")
+        ));
     }
 
     #[gpui::test]

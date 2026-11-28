@@ -18,9 +18,13 @@ pub(super) struct DockView {
 
 /// The chip a tap meant: by number key, or the person clicked on the turn
 /// the dock showed.
-enum DockPick {
+pub(super) enum DockPick {
     Key(usize),
-    Click { person: String, turn: String },
+    Click {
+        person: String,
+        session: String,
+        turn: String,
+    },
 }
 
 impl RecordingPanel {
@@ -119,10 +123,15 @@ impl RecordingPanel {
     }
 
     /// Names (or confirms) the dock's turn as the picked person.
-    fn dock_pick(&mut self, pick: DockPick, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn dock_pick(
+        &mut self,
+        pick: DockPick,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let connected = self.daemon.read(cx).connected;
         let paused = self.dock_paused(cx);
-        if self.live_pending() || self.live_naming.is_some() {
+        if self.live_pending() {
             return;
         }
         let Some(view) = self.dock_view(cx) else {
@@ -131,18 +140,28 @@ impl RecordingPanel {
         let Some(turn) = view.target.as_ref() else {
             return;
         };
+        // An open picker names the dock's turn too; a chip answers it.
+        let picker_open = self.live_naming.is_some();
+        if self
+            .live_naming
+            .as_ref()
+            .is_some_and(|naming| naming.shown.turn_id != turn.turn_id)
+        {
+            return;
+        }
         if dock::blocked(Some(turn), paused, connected).is_some() {
             return;
         }
         let chip = match &pick {
-            DockPick::Key(ix) => view.chips.get(*ix),
+            DockPick::Key(ix) => view.chips.iter().find(|c| c.key == Some(*ix)),
             DockPick::Click {
                 person,
+                session,
                 turn: shown,
             } => {
                 // A click names the turn it was shown beside, never one
-                // that arrived meanwhile.
-                if *shown != turn.turn_id {
+                // that arrived meanwhile (nor one of a later recording).
+                if *shown != turn.turn_id || *session != turn.session_id {
                     self.set_live_status(
                         &turn.session_id,
                         shown,
@@ -155,7 +174,7 @@ impl RecordingPanel {
                     cx.notify();
                     return;
                 }
-                view.chips.iter().find(|c| c.person.key == *person)
+                view.chips.iter().find(|c| c.person.identity() == *person)
             }
         };
         let Some(chip) = chip else {
@@ -165,6 +184,9 @@ impl RecordingPanel {
             return;
         };
         self.live_decision(ShownTurn::of(turn), action, Some(person_ref), window, cx);
+        if picker_open {
+            self.transcript_focus.focus(window, cx);
+        }
     }
 
     /// *Back to speaking now*: the dock follows the speaker again.
@@ -204,7 +226,7 @@ impl RecordingPanel {
         let connected = self.daemon.read(cx).connected;
         let paused = self.dock_paused(cx);
         let view = self.dock_view(cx)?;
-        let busy = self.live_pending() || self.live_naming.is_some();
+        let busy = self.live_pending();
         let target = view.target.as_ref();
         let blocked = dock::blocked(target, paused, connected);
         let muted = cx.theme().muted_foreground;
@@ -216,13 +238,20 @@ impl RecordingPanel {
             };
             format!("{} · {speaker} · {}", format_clock(turn.start_s), turn.text)
         });
-        let keys = view.chips.len().min(dock::DOCK_KEYS);
+        let keys = view
+            .chips
+            .iter()
+            .filter_map(|c| c.key)
+            .max()
+            .map_or(0, |k| k + 1);
         let hint = match keys {
-            0 => "Nobody listed yet. Someone new… adds a name.".to_owned(),
+            _ if view.chips.is_empty() => "Nobody listed yet. Someone new… adds a name.".to_owned(),
+            0 => "Tap a name for this turn".to_owned(),
             1 => "1 names this turn".to_owned(),
             n => format!("1–{n} name this turn"),
         };
         let shown_turn = target.map(|t| t.turn_id.clone());
+        let shown_session = target.map(|t| t.session_id.clone());
         let chips = view.chips.iter().enumerate().map(|(ix, chip)| {
             let disc = match chip.state {
                 ChipState::TapToConfirm | ChipState::Suggested(_) => kit::Disc::Suggested,
@@ -231,11 +260,25 @@ impl RecordingPanel {
                     .hue
                     .map_or(kit::Disc::Voice(None), kit::Disc::Person),
             };
-            let person = chip.person.key.clone();
-            let turn = shown_turn.clone();
-            let disabled = blocked.is_some() || busy;
-            let reason = blocked.unwrap_or("Waiting for BroScribe Agent to answer.");
-            Button::new(SharedString::from(format!("dock-person-{ix}")))
+            let person = chip.person.identity();
+            let turn = shown_turn.clone().zip(shown_session.clone());
+            let disabled = blocked.is_some() || busy || chip.person.ambiguous;
+            let reason = blocked.unwrap_or(if busy {
+                "Waiting for BroScribe Agent to answer."
+            } else {
+                "More than one person has this name. Use Someone new… to choose."
+            });
+            // A press names the person and turn it started on: when either
+            // changes before the release, the button is a new element and
+            // the click is dropped.
+            let id = format!(
+                "dock-person-{}-{}-{}",
+                person,
+                shown_session.as_deref().unwrap_or_default(),
+                shown_turn.as_deref().unwrap_or_default()
+            );
+            Button::new(SharedString::from(id))
+                .debug_selector(move || format!("dock-person-{ix}"))
                 .small()
                 .outline()
                 .when(chip.state.unconfirmed(), |button| button.border_dashed())
@@ -249,10 +292,11 @@ impl RecordingPanel {
                 .child(chip.line())
                 .map(|button| kit::disable_with_reason(button, disabled, reason, cx))
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    if let Some(turn) = turn.clone() {
+                    if let Some((turn, session)) = turn.clone() {
                         this.dock_pick(
                             DockPick::Click {
                                 person: person.clone(),
+                                session,
                                 turn,
                             },
                             window,
@@ -270,7 +314,7 @@ impl RecordingPanel {
             .map(|button| {
                 kit::disable_with_reason(
                     button,
-                    blocked.is_some() || busy,
+                    blocked.is_some() || busy || self.live_naming.is_some(),
                     blocked.unwrap_or("Waiting for BroScribe Agent to answer."),
                     cx,
                 )
@@ -288,7 +332,8 @@ impl RecordingPanel {
                 .debug_selector(|| "speaking-dock".into())
                 .role(Role::Group)
                 .aria_label(title.clone())
-                .track_focus(&self.dock_focus)
+                .aria_keyshortcuts("1 2 3 4")
+                .track_focus(&self.dock_focus.clone().tab_index(0).tab_stop(true))
                 .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                     if this.dock_key(event, window, cx) {
                         cx.stop_propagation();
