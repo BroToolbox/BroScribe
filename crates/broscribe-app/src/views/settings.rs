@@ -3015,6 +3015,9 @@ impl SettingsView {
         allow_unverified: bool,
         cx: &mut Context<Self>,
     ) {
+        // Every switch, including to a search server, replaces the role's
+        // earlier result.
+        self.models.outcomes.retain(|(saved, _), _| saved != &role);
         self.models.using = Some((role.clone(), id.clone()));
         cx.notify();
         let mut a = args([
@@ -7291,6 +7294,12 @@ mod tests {
         })
         .unwrap();
         visual.simulate_resize(gpui::size(px(640.), px(900.)));
+        window
+            .update(&mut visual, |view, _, _| {
+                view.page_scroll.scroll_to_top_of_item(5)
+            })
+            .unwrap();
+        visual.run_until_parked();
         crate::ui::kit::dialog_gate::click(&mut visual, "settings-remove-word-1", Role::Button);
         assert_eq!(
             Config::load(&data).unwrap().hotwords,
@@ -7673,6 +7682,33 @@ esac
                     .any(|node| node.name == "Deleted the downloaded files for Clover.")
             );
         });
+    }
+
+    #[gpui::test]
+    fn switching_to_a_search_server_replaces_the_earlier_result(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, settings) = settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
+        settings
+            .update(cx, |this, _, cx| {
+                this.models.outcomes.insert(
+                    ("text_embedding".into(), "potion-base-8m".into()),
+                    outcome(Ok("Potion Base 8M is now used for search.".into())),
+                );
+                this.use_model(
+                    "text_embedding".into(),
+                    "synthetic-server".into(),
+                    false,
+                    cx,
+                );
+                assert!(
+                    !this
+                        .models
+                        .outcomes
+                        .keys()
+                        .any(|(role, _)| role == "text_embedding")
+                );
+            })
+            .unwrap();
     }
 
     #[gpui::test]

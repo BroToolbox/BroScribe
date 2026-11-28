@@ -160,11 +160,6 @@ impl ModelStore {
         use broscribe_platform::profile_cleanup::{ModelCleanup, clean_model};
         clean_model(
             &dir,
-            entry
-                .files
-                .iter()
-                .filter(|file| !file.archive)
-                .map(|file| file.file_name().to_owned()),
             if apply {
                 ModelCleanup::Remove
             } else {

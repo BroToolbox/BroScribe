@@ -140,7 +140,7 @@ pub fn pull(
     }
 
     let partial = dir.join(PARTIAL_DIR);
-    clean_download(&dir, entry, ModelCleanup::RestartDownload)?;
+    clean_download(&dir, ModelCleanup::RestartDownload)?;
     std::fs::create_dir_all(&partial).map_err(|e| Error::io_at(&partial, e))?;
 
     // The last stop check: `install` replaces the earlier install.
@@ -152,7 +152,7 @@ pub fn pull(
     let (files, record) = match staged {
         Ok(files) => files,
         Err(e) => {
-            let _ = clean_download(&dir, entry, ModelCleanup::RestartDownload);
+            let _ = clean_download(&dir, ModelCleanup::RestartDownload);
             return Err(e);
         }
     };
@@ -352,7 +352,7 @@ fn install(
     files: Vec<InstalledFile>,
     mut record: ModelPartialEntries,
 ) -> Result<()> {
-    clean_download(dir, entry, ModelCleanup::InstallDownload)?;
+    clean_download(dir, ModelCleanup::InstallDownload)?;
     for item in read_dir(partial)? {
         if item.file_name() == MODEL_PARTIAL_RECORD {
             continue;
@@ -402,16 +402,8 @@ fn read_dir(dir: &Path) -> Result<Vec<std::fs::DirEntry>> {
         .map_err(|e| Error::io_at(dir, e))
 }
 
-fn clean_download(dir: &Path, entry: &ModelEntry, mode: ModelCleanup) -> Result<()> {
-    clean_model(
-        dir,
-        entry
-            .files
-            .iter()
-            .filter(|file| !file.archive)
-            .map(|file| file.file_name().to_owned()),
-        mode,
-    )?;
+fn clean_download(dir: &Path, mode: ModelCleanup) -> Result<()> {
+    clean_model(dir, mode)?;
     Ok(())
 }
 
@@ -1090,6 +1082,31 @@ mod tests {
             }
             assert_eq!(std::fs::read(&restored).unwrap(), b"keep", "{operation}");
         }
+    }
+
+    #[test]
+    fn a_user_file_named_like_a_model_file_is_never_the_downloads() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let name = "weights.onnx";
+        let model = entry("tiny", vec![plain(name, b"model")]);
+        let store = ModelStore::new(data.path());
+        let dir = store.model_dir(&model.id).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let mine = dir.join(name);
+        std::fs::write(&mine, b"mine").unwrap();
+        // Nothing BroScribe installed is there to remove.
+        assert!(store.lock_for_removal(&model).unwrap().is_none());
+        assert!(!store.remove_model_files(&model).unwrap());
+        // A download that fails its checksum, then one that succeeds.
+        let options = opts(mirror.path());
+        for bytes in [&b"bad!!"[..], &b"model"[..]] {
+            std::fs::write(mirror.path().join(name), bytes).unwrap();
+            pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap_err();
+            assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
+        }
+        let error = pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap_err();
+        assert_eq!(error.code(), "model_cache_has_other_files");
     }
 
     #[test]

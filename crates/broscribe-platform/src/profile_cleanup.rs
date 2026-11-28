@@ -550,11 +550,7 @@ pub enum ModelCleanup {
 /// Plans model cache changes using the install and staging inventories.
 /// A download refuses unknown entries before changing anything. Removing a
 /// download leaves unknown entries alone. Callers serialize writes per model.
-pub fn clean_model(
-    root: &Path,
-    loose_files: impl IntoIterator<Item = String>,
-    mode: ModelCleanup,
-) -> Result<(bool, Cleanup)> {
+pub fn clean_model(root: &Path, mode: ModelCleanup) -> Result<(bool, Cleanup)> {
     let Some(mut shape) = model_shape(root) else {
         return Ok((false, Cleanup::default()));
     };
@@ -562,10 +558,6 @@ pub fn clean_model(
     let verified = shape.files.iter().any(|file| file == ".verified");
     // The downloader reserves this filename, including a damaged marker.
     shape.files.push(".verified".into());
-    for file in loose_files {
-        shape.files.push(format!(".partial/{file}"));
-        shape.files.push(file);
-    }
     let mut plan = plan_cleanup(root, &shape, &[], false, cfg!(windows))?;
     let has_files = plan
         .1
