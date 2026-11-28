@@ -2,11 +2,10 @@
 
 This crate is empty off Windows. All native dependencies are target-gated.
 Implementation is not evidence of a successful Windows runtime test. The
-orchestrator observed `cargo check -p broscribe-platform-windows -p
-broscribe-platform-native --target x86_64-pc-windows-gnu` pass on macOS with
-mingw-w64 (compiler warnings remain for SDK constant casing and tray cleanup).
-The macOS check of both OS crates also passed. No Windows runtime or native
-MSVC link test has been run.
+full workspace suite passes natively with MSVC on Windows 11 x64, hosted CI
+(`windows-2025`, MSVC) runs Clippy, the tests and the release build, and the
+0.1.0 release shipped an unsigned x64 ZIP built by the release workflow
+(docs/acceptance.md). The owner-run desktop checklist below is still pending.
 
 ## Toolchain and ABI
 

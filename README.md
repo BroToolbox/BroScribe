@@ -9,9 +9,10 @@ meetings. Turn on an AI provider and ask for a summary, decisions and action
 items. Search everything from the app, the command line or your AI assistant.
 Transcription runs on your computer, and BroScribe never uploads your audio.
 
-> **Status: in development.** The first release is being prepared and there are
-> no downloads yet. macOS is the most complete platform; Windows and Linux are
-> implemented but not yet verified on real desktops. You can
+> **Status: early release.** [BroScribe 0.1.0](https://github.com/BroToolbox/BroScribe/releases/tag/v0.1.0)
+> is out for macOS, Windows and Linux, and the next release is in development
+> on `main`. macOS is the most complete platform; Windows and Linux packages are
+> published but not yet verified on real desktops. You can also
 > [build it from source](#build-from-source).
 
 ![The BroScribe library: recent meetings beside the selected meeting's speakers, talking time and AI summary](https://raw.githubusercontent.com/BroToolbox/BroScribe/screenshots/library.png)
@@ -131,18 +132,21 @@ report a vulnerability.
 
 | System | Status |
 | --- | --- |
-| macOS 14.2 or later, Apple silicon | Main supported build; first release in preparation |
-| Windows 11, x64 | Implemented; not yet verified on a real desktop |
-| Linux x64 and arm64, glibc 2.39 or later | Implemented; not yet verified on a real desktop (reference: Ubuntu 24.04 with GNOME and PipeWire) |
+| macOS 14.2 or later, Apple silicon | Main supported build; signed and notarized disk image since 0.1.0 |
+| Windows 11, x64 | Unsigned ZIP since 0.1.0; not yet verified on a real desktop |
+| Linux x64 and arm64, glibc 2.39 or later | Per-user tar.gz since 0.1.0; not yet verified on a real desktop (reference: Ubuntu 24.04 with GNOME and PipeWire) |
 
 Intel Macs are not supported. The [verification page](docs/acceptance.md)
 shows what has been tested on each system so far.
 
 ## Install
 
-There are no downloads yet. When the first release is published, it will be on
-the [Releases page](https://github.com/BroToolbox/BroScribe/releases); on macOS,
-open the disk image and drag BroScribe to Applications. The
+Download the latest release from the
+[Releases page](https://github.com/BroToolbox/BroScribe/releases). On macOS,
+open the disk image and drag BroScribe to Applications. On Linux, unpack the
+tar.gz and run its per-user installer. On Windows, extract the ZIP into
+`%LOCALAPPDATA%\Programs`; it is not yet Authenticode-signed, so SmartScreen
+may warn. Later versions arrive through the in-app updater. The
 [installation guide](docs/install.md) explains installing, upgrading and
 removing BroScribe on each system.
 
