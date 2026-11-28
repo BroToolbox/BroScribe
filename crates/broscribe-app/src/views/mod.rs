@@ -91,6 +91,19 @@ mod error_copy_tests {
                 "Couldn't download silero-vad. {STOPPED} Check your connection, then try again."
             )
         );
+        let crowded = super::settings::download_failure(
+            "Silero VAD",
+            &CliError::answered(
+                "model_cache_has_other_files",
+                "BroScribe found an unrecognised entry in the model folder (notes.txt). Move it \
+                 out before downloading again.",
+            ),
+        );
+        assert!(
+            crowded.starts_with("Couldn't download Silero VAD."),
+            "{crowded}"
+        );
+        assert!(!crowded.contains("Check your connection"), "{crowded}");
         // "Renaming failed: {e}"
         let rename = super::meeting::rename_failure(
             &CliError::new("invalid_input", "invalid input: the title is empty").user_text(),

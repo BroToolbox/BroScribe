@@ -4473,6 +4473,179 @@ fn setup_pull_models_downloads_before_loading_the_new_embedder() {
     assert_eq!(v["models"][2]["roles"], serde_json::json!(["live"]), "{v}");
 }
 
+#[test]
+fn model_removal_protects_configured_roles_and_in_progress_downloads() {
+    use broscribe_core::config::Config;
+    use broscribe_models::{ModelStore, Registry};
+
+    let f = Fixture::new();
+    let data = f.data_dir();
+    let store = ModelStore::new(&data);
+    let whisper = "whisper-small";
+    let unused = "whisper-base";
+    Config::update(&data, |config| {
+        config.profile.asr = whisper.into();
+        Ok(())
+    })
+    .unwrap();
+
+    let registry = Registry::builtin().unwrap();
+    let protect = [
+        "parakeet-tdt-0.6b-v3",
+        whisper,
+        "silero-vad",
+        "nemo-titanet-large",
+        "potion-multilingual-128m",
+        "pyannote-segmentation-3.0",
+    ];
+    for id in protect.into_iter().chain([unused]) {
+        let dir = store.model_dir(id).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let entry = registry.require(id).unwrap();
+        let name = entry.files[0].file_name();
+        if id == unused {
+            // An unfinished download: its file sits in staging with its record.
+            let partial = dir.join(".partial");
+            std::fs::create_dir_all(&partial).unwrap();
+            std::fs::write(partial.join(name), b"cached").unwrap();
+            broscribe_platform::profile_cleanup::ModelPartialEntries {
+                id: id.into(),
+                files: vec![name.into()],
+                ..Default::default()
+            }
+            .save(&partial)
+            .unwrap();
+            continue;
+        }
+        std::fs::write(dir.join(name), b"cached").unwrap();
+        store
+            .mark_verified(&broscribe_models::VerifiedMarker {
+                id: id.into(),
+                sources: Vec::new(),
+                files: vec![broscribe_models::store::InstalledFile {
+                    path: name.into(),
+                    bytes: 6,
+                    sha256: String::new(),
+                }],
+            })
+            .unwrap();
+    }
+    let fail = |args: &[&str], code: &str| {
+        let (status, out, err) = f.run(args);
+        assert_ne!(status, 0, "{args:?}: {out}{err}");
+        assert!(format!("{out}{err}").contains(code), "{args:?}: {out}{err}");
+    };
+    for id in protect {
+        fail(&["--json", "models", "remove", id, "--yes"], "model_in_use");
+        assert!(store.has_model_files(registry.require(id).unwrap()));
+    }
+    fail(&["models", "remove", unused], "--yes");
+    let entry = registry.require(unused).unwrap();
+    let lock = store.lock_for_removal(entry).unwrap().unwrap();
+    fail(
+        &["--json", "models", "remove", unused, "--yes"],
+        "model_busy",
+    );
+    drop(lock);
+    assert!(store.has_model_files(registry.require(unused).unwrap()));
+    let models = f.json(&["models", "list"]);
+    let row = models["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == unused)
+        .unwrap();
+    assert_eq!(row["has_model_files"], true);
+    assert_eq!(row["state"], "missing");
+    let revision = Config::load(&data).unwrap().revision();
+    let unrelated = store.model_dir(unused).unwrap().join("my-notes.txt");
+    std::fs::write(&unrelated, b"keep").unwrap();
+    assert_eq!(
+        f.json(&["models", "remove", "--yes", "--", unused])["removed"],
+        true
+    );
+    assert_eq!(
+        f.json(&["models", "remove", unused, "--yes"])["removed"],
+        false
+    );
+    assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep");
+    assert!(!store.has_model_files(registry.require(unused).unwrap()));
+    fail(
+        &[
+            "--json",
+            "models",
+            "use",
+            "asr",
+            unused,
+            "--require-installed",
+        ],
+        "model_missing",
+    );
+    fail(
+        &[
+            "--json",
+            "models",
+            "use",
+            "text_embedding",
+            "potion-base-8m",
+            "--require-installed",
+        ],
+        "model_missing",
+    );
+    let config = Config::load(&data).unwrap();
+    assert_eq!(config.revision(), revision);
+    assert_eq!(config.profile.asr, whisper);
+    assert_eq!(config.profile.text_embedding, "potion-multilingual-128m");
+
+    // A current registry marker authorises a switch through Settings' strict
+    // path, but a damaged payload must leave the active model alone.
+    let file = &entry.files[0];
+    let target = store.model_dir(unused).unwrap().join(file.file_name());
+    std::fs::write(&target, b"ready").unwrap();
+    store
+        .mark_verified(&broscribe_models::VerifiedMarker {
+            id: unused.into(),
+            sources: entry
+                .files
+                .iter()
+                .map(|file| broscribe_models::store::SourceHash {
+                    file: file.file_name().into(),
+                    sha256: file.sha256.clone(),
+                })
+                .collect(),
+            files: vec![broscribe_models::store::InstalledFile {
+                path: file.file_name().into(),
+                bytes: 5,
+                sha256: String::new(),
+            }],
+        })
+        .unwrap();
+    assert_eq!(
+        f.json(&["models", "use", "asr", unused, "--require-installed"])["installed"],
+        true
+    );
+    std::fs::write(&target, b"damaged payload").unwrap();
+    fail(
+        &[
+            "--json",
+            "models",
+            "use",
+            "asr",
+            unused,
+            "--require-installed",
+        ],
+        "model_missing",
+    );
+
+    let fresh = Fixture::new();
+    let fresh_store = ModelStore::new(&fresh.data_dir());
+    assert_eq!(
+        fresh.json(&["models", "remove", unused, "--yes"])["removed"],
+        false
+    );
+    assert!(!fresh_store.root().exists());
+}
+
 /// Pauses in `load_embedder` until released, to interleave another
 /// process's config write while `models use` loads the new model.
 struct PausedEmbedderProvider {

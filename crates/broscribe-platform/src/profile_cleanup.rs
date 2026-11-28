@@ -352,14 +352,71 @@ pub const MODEL_PARTIAL_RECORD: &str = ".entries.json";
 #[serde(deny_unknown_fields)]
 pub struct ModelPartialEntries {
     pub id: String,
+    /// Staged files that install moves into the model folder.
     pub files: Vec<String>,
     pub dirs: Vec<String>,
+    /// Downloads that stay in `.partial`, such as an archive before unpacking.
+    #[serde(default)]
+    pub sources: Vec<String>,
+    /// Top-level entries install has started moving into the model folder,
+    /// each saved just before its rename. Only these root names can be
+    /// BroScribe's, and only once they have left `.partial`.
+    #[serde(default)]
+    pub moved: Vec<String>,
+}
+
+/// Files the macOS Finder and Windows Explorer write into folders they show.
+pub fn is_os_metadata(name: &str) -> bool {
+    name == ".DS_Store"
+        || name.starts_with("._")
+        || name.eq_ignore_ascii_case("desktop.ini")
+        || name.eq_ignore_ascii_case("Thumbs.db")
 }
 
 impl ModelPartialEntries {
     pub fn save(&self, partial: &Path) -> Result<()> {
         broscribe_core::fsutil::write_json_atomic(&partial.join(MODEL_PARTIAL_RECORD), self)
     }
+}
+
+fn read_marker<T: serde::de::DeserializeOwned>(marker: &Path) -> Option<T> {
+    const LIMIT: u64 = 4 * 1024 * 1024;
+    let meta = std::fs::symlink_metadata(marker).ok()?;
+    if !meta.is_file() || is_reparse(&meta) || meta.len() > LIMIT {
+        return None;
+    }
+    let file = std::fs::File::open(marker).ok()?;
+    let bytes = std::io::read_to_string(std::io::Read::take(file, LIMIT + 1)).ok()?;
+    if bytes.len() as u64 > LIMIT {
+        return None;
+    }
+    serde_json::from_str(&bytes).ok()
+}
+
+fn safe(path: &str) -> bool {
+    !path
+        .split('/')
+        .any(|part| matches!(part, "" | "." | "..") || part.contains('\\'))
+}
+
+/// The staging record of the model folder `model`, if cleanup accepts it as
+/// that model's own.
+fn staging_record(model: &Path) -> Option<ModelPartialEntries> {
+    let id = model.file_name()?.to_str()?;
+    let partial = model.join(".partial");
+    if !std::fs::symlink_metadata(&partial).is_ok_and(|meta| meta.is_dir() && !is_reparse(&meta)) {
+        return None;
+    }
+    read_marker::<ModelPartialEntries>(&partial.join(MODEL_PARTIAL_RECORD)).filter(|record| {
+        record.id == id
+            && record
+                .files
+                .iter()
+                .chain(&record.dirs)
+                .chain(&record.sources)
+                .chain(&record.moved)
+                .all(|path| safe(path))
+    })
 }
 
 fn model_shape(root: &Path) -> Option<Shape> {
@@ -377,24 +434,6 @@ fn model_shape(root: &Path) -> Option<Shape> {
     #[derive(Deserialize)]
     struct ModelSource {
         file: String,
-    }
-    fn read_marker<T: serde::de::DeserializeOwned>(marker: &Path) -> Option<T> {
-        const LIMIT: u64 = 4 * 1024 * 1024;
-        let meta = std::fs::symlink_metadata(marker).ok()?;
-        if !meta.is_file() || is_reparse(&meta) || meta.len() > LIMIT {
-            return None;
-        }
-        let file = std::fs::File::open(marker).ok()?;
-        let bytes = std::io::read_to_string(std::io::Read::take(file, LIMIT + 1)).ok()?;
-        if bytes.len() as u64 > LIMIT {
-            return None;
-        }
-        serde_json::from_str(&bytes).ok()
-    }
-    fn safe(path: &str) -> bool {
-        !path
-            .split('/')
-            .any(|part| matches!(part, "" | "." | "..") || part.contains('\\'))
     }
     fn add(shape: &mut Shape, relative: String, is_dir: bool) {
         shape.dirs.extend(
@@ -429,37 +468,39 @@ fn model_shape(root: &Path) -> Option<Shape> {
             && record.files.iter().all(|file| safe(&file.path))
             && record.sources.iter().all(|source| safe(&source.file))
     }) {
+        // The marker lists installed files only. Staging belongs to the
+        // download's own record.
         shape.files.push(".verified".into());
         for ModelFile { path } in marker.files {
-            add(&mut shape, format!(".partial/{path}"), false);
             add(&mut shape, path, false);
-        }
-        for ModelSource { file } in marker.sources {
-            add(&mut shape, format!(".partial/{file}"), false);
         }
     }
     let partial = root.join(".partial");
-    if std::fs::symlink_metadata(&partial).is_ok_and(|meta| meta.is_dir() && !is_reparse(&meta))
-        && let Some(entries) = read_marker::<ModelPartialEntries>(
-            &partial.join(MODEL_PARTIAL_RECORD),
-        )
-        .filter(|record| {
-            record.id == id
-                && record
-                    .files
-                    .iter()
-                    .chain(&record.dirs)
-                    .all(|path| safe(path))
-        })
-    {
+    if let Some(entries) = staging_record(root) {
         shape.files.push(format!(".partial/{MODEL_PARTIAL_RECORD}"));
-        for path in entries.files {
+        // Install records each top-level entry before renaming it out of
+        // staging. A root name is BroScribe's only once that entry has moved;
+        // a staged copy removed some other way proves nothing.
+        let moved = |path: &str| {
+            let top = path.split('/').next().unwrap_or(path);
+            entries.moved.iter().any(|name| name == top)
+                && std::fs::symlink_metadata(partial.join(top))
+                    .is_err_and(|error| error.kind() == ErrorKind::NotFound)
+        };
+        for path in &entries.files {
             add(&mut shape, format!(".partial/{path}"), false);
-            add(&mut shape, path, false);
+            if moved(path) {
+                add(&mut shape, path.clone(), false);
+            }
         }
-        for path in entries.dirs {
+        for path in &entries.dirs {
             add(&mut shape, format!(".partial/{path}"), true);
-            add(&mut shape, path, true);
+            if moved(path) {
+                add(&mut shape, path.clone(), true);
+            }
+        }
+        for path in &entries.sources {
+            add(&mut shape, format!(".partial/{path}"), false);
         }
     }
     Some(shape)
@@ -487,29 +528,178 @@ pub fn clean(
     skip: &[&str],
     ignore_case: bool,
 ) -> Result<Cleanup> {
-    let shape = &SHAPES[kind];
+    let mut plan = plan_cleanup(root, &SHAPES[kind], skip, kind == "run", ignore_case)?;
+    if apply {
+        plan.1
+            .sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
+    }
+    finish_cleanup(root, plan, apply)
+}
+
+/// The model operations that share the cache ownership inventory.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ModelCleanup {
+    Inspect,
+    Remove,
+    RestartDownload,
+    InstallDownload,
+}
+
+/// Plans model cache changes using the install and staging inventories.
+/// A download refuses unknown entries before changing anything. Removing a
+/// download leaves unknown entries alone. Callers serialize writes per model.
+pub fn clean_model(root: &Path, mode: ModelCleanup) -> Result<(bool, Cleanup)> {
+    let Some(mut shape) = model_shape(root) else {
+        return Ok((false, Cleanup::default()));
+    };
+    // Only a readable marker for this model lists its files.
+    let verified = shape.files.iter().any(|file| file == ".verified");
+    // The downloader reserves this filename, including a damaged marker.
+    shape.files.push(".verified".into());
+    let mut plan = plan_cleanup(root, &shape, &[], false, cfg!(windows))?;
+    let has_files = plan
+        .1
+        .iter()
+        .any(|(_, task)| matches!(task, Task::File { .. }));
+    // Finder and Explorer metadata never names a model file, so it neither
+    // blocks a download nor keeps an emptied model folder around.
+    plan.0.kept.retain(|path| {
+        let metadata = path != root
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_os_metadata)
+            && std::fs::symlink_metadata(path)
+                .is_ok_and(|meta| meta.is_file() && !is_reparse(&meta));
+        if metadata {
+            plan.1.push((path.clone(), Task::File { socket: false }));
+        }
+        !metadata
+    });
+    if mode == ModelCleanup::Inspect || (mode == ModelCleanup::Remove && !has_files) {
+        return Ok((has_files, plan.0));
+    }
+    if mode != ModelCleanup::Remove
+        && let Some(path) = plan.0.kept.first()
+    {
+        let relative = path.strip_prefix(root).unwrap_or(Path::new(""));
+        let location = if relative.as_os_str().is_empty() {
+            "the model folder".into()
+        } else {
+            format!("the model folder ({})", relative.display())
+        };
+        return Err(Error::Service {
+            code: "model_cache_has_other_files",
+            message: format!(
+                "BroScribe found an unrecognised entry in {location}. Move it out before downloading again."
+            ),
+        });
+    }
+
+    let staging = root.join(".partial");
+    match mode {
+        // Without a marker the folder holds no usable install, only what an
+        // interrupted install had moved out of staging.
+        ModelCleanup::RestartDownload if verified => {
+            plan.1.retain(|(path, _)| path.starts_with(&staging))
+        }
+        ModelCleanup::InstallDownload => plan.1.retain(|(path, _)| !path.starts_with(&staging)),
+        _ => {}
+    }
+    // Keep ownership records until their payloads are gone, including when
+    // a locked file causes removal to be retried.
+    plan.1.sort_by_key(|(path, task)| match task {
+        Task::EmptyDir => (2, std::cmp::Reverse(path.components().count())),
+        Task::File { .. }
+            if matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(".verified" | MODEL_PARTIAL_RECORD)
+            ) =>
+        {
+            (1, std::cmp::Reverse(0))
+        }
+        _ => (0, std::cmp::Reverse(0)),
+    });
+    finish_cleanup(root, plan, true).map(|report| (has_files, report))
+}
+
+type CleanupPlan = (Cleanup, Vec<(PathBuf, Task)>);
+
+fn plan_cleanup(
+    root: &Path,
+    shape: &Shape,
+    skip: &[&str],
+    allow_sockets: bool,
+    ignore_case: bool,
+) -> Result<CleanupPlan> {
     let mut cleanup = Cleanup::default();
     let mut tasks = Vec::new();
     let meta = match std::fs::symlink_metadata(root) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(cleanup),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok((cleanup, tasks)),
         Err(error) => return Err(Error::io_at(root, error)),
     };
     if !meta.is_dir() || is_reparse(&meta) {
         cleanup.kept.push(root.to_path_buf());
-        return Ok(cleanup);
+        return Ok((cleanup, tasks));
     }
     plan(
         root,
-        kind == "run",
+        allow_sockets,
         shape,
         skip,
         ignore_case,
         &mut cleanup,
         &mut tasks,
     )?;
+    Ok((cleanup, tasks))
+}
+
+/// Takes the staged entries a cleanup is about to delete off their
+/// records' `moved` lists first. A staged copy deleted by an interrupted
+/// cleanup then never reads as one that install moved to the model root.
+/// Only staging folders inside `root`, with records cleanup accepts, change.
+fn forget_moves(root: &Path, tasks: &[(PathBuf, Task)]) -> Result<()> {
+    let mut staged: Vec<(&Path, Vec<&str>)> = Vec::new();
+    for (path, _) in tasks {
+        let Some((partial, name)) = path
+            .ancestors()
+            .take_while(|child| child.starts_with(root) && *child != root)
+            .find_map(|child| {
+                let parent = child.parent()?;
+                (parent.file_name()? == ".partial")
+                    .then_some((parent, child.file_name()?.to_str()?))
+            })
+        else {
+            continue;
+        };
+        if name == MODEL_PARTIAL_RECORD {
+            continue;
+        }
+        match staged.iter_mut().find(|(known, _)| *known == partial) {
+            Some((_, names)) => names.push(name),
+            None => staged.push((partial, vec![name])),
+        }
+    }
+    for (partial, names) in staged {
+        let Some(model) = partial.parent().filter(|model| model.starts_with(root)) else {
+            continue;
+        };
+        let Some(mut entries) = staging_record(model) else {
+            continue;
+        };
+        let before = entries.moved.len();
+        entries.moved.retain(|name| !names.contains(&name.as_str()));
+        if entries.moved.len() != before {
+            entries.save(partial)?;
+        }
+    }
+    Ok(())
+}
+
+fn finish_cleanup(root: &Path, (mut cleanup, tasks): CleanupPlan, apply: bool) -> Result<Cleanup> {
     if apply {
-        tasks.sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
+        forget_moves(root, &tasks)?;
         for (path, task) in tasks {
             let meta = match std::fs::symlink_metadata(&path) {
                 Ok(meta) => meta,
@@ -728,6 +918,8 @@ mod tests {
             id: "synthetic.model".into(),
             files: vec!["assets/model.onnx".into()],
             dirs: vec!["assets".into()],
+            sources: Vec::new(),
+            moved: vec!["assets".into()],
         }
         .save(&partial)
         .unwrap();
@@ -739,6 +931,138 @@ mod tests {
         assert_eq!(cleanup.kept, std::slice::from_ref(&keep));
         assert!(!partial.exists() && !model.join("assets/model.onnx").exists());
         assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
+    }
+
+    #[test]
+    fn a_download_that_has_not_started_installing_owns_nothing_at_the_model_root() {
+        let root = tempfile::tempdir().unwrap();
+        let model = root.path().join("models/synthetic.model");
+        let partial = model.join(".partial");
+        std::fs::create_dir_all(partial.join("assets")).unwrap();
+        std::fs::create_dir_all(model.join("assets")).unwrap();
+        std::fs::write(partial.join("assets/model.onnx"), b"staged").unwrap();
+        let keep = model.join("assets/model.onnx");
+        std::fs::write(&keep, b"synthetic user file").unwrap();
+        // A record from v0.1.0 lists the archive with the files and has no
+        // install flag.
+        std::fs::write(
+            partial.join(MODEL_PARTIAL_RECORD),
+            r#"{"id":"synthetic.model","files":["synthetic.tar.bz2","assets/model.onnx"],"dirs":["assets"]}"#,
+        )
+        .unwrap();
+        let archive = model.join("synthetic.tar.bz2");
+        std::fs::write(&archive, b"synthetic user copy").unwrap();
+        clean(root.path(), "data", true, &[], false).unwrap();
+        assert!(!partial.join("assets/model.onnx").exists());
+        assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
+        assert_eq!(std::fs::read(archive).unwrap(), b"synthetic user copy");
+    }
+
+    #[test]
+    fn an_install_owns_only_the_root_entries_it_has_already_moved() {
+        let root = tempfile::tempdir().unwrap();
+        let model = root.path().join("models/synthetic.model");
+        let partial = model.join(".partial");
+        // `moved` left staging. `staged` was recorded but not yet renamed.
+        // `removed` lost its staged copy to an interrupted removal.
+        for top in ["moved", "staged", "removed"] {
+            std::fs::create_dir_all(model.join(top)).unwrap();
+        }
+        std::fs::create_dir_all(partial.join("staged")).unwrap();
+        std::fs::write(partial.join("staged/w.onnx"), b"staged").unwrap();
+        std::fs::write(model.join("moved/w.onnx"), b"moved").unwrap();
+        let keep = ["staged", "removed"].map(|top| model.join(top).join("w.onnx"));
+        for path in &keep {
+            std::fs::write(path, b"synthetic user file").unwrap();
+        }
+        ModelPartialEntries {
+            id: "synthetic.model".into(),
+            files: ["moved", "staged", "removed"]
+                .map(|top| format!("{top}/w.onnx"))
+                .into(),
+            dirs: Vec::new(),
+            sources: Vec::new(),
+            moved: vec!["moved".into(), "staged".into()],
+        }
+        .save(&partial)
+        .unwrap();
+        let mut cleanup = clean(root.path(), "data", true, &[], false).unwrap();
+        cleanup.kept.sort();
+        // Unclaimed root folders are kept whole, with the user's files.
+        assert_eq!(
+            cleanup.kept,
+            vec![model.join("removed"), model.join("staged")]
+        );
+        assert!(!model.join("moved").exists());
+        assert!(!partial.join("staged/w.onnx").exists());
+        for path in keep {
+            assert_eq!(std::fs::read(path).unwrap(), b"synthetic user file");
+        }
+    }
+
+    #[test]
+    fn deleting_a_staged_entry_first_takes_it_off_the_moved_list() {
+        let root = tempfile::tempdir().unwrap();
+        let partial = root.path().join("synthetic.model/.partial");
+        std::fs::create_dir_all(partial.join("staged")).unwrap();
+        ModelPartialEntries {
+            id: "synthetic.model".into(),
+            files: vec!["moved/w.onnx".into(), "staged/w.onnx".into()],
+            dirs: Vec::new(),
+            sources: Vec::new(),
+            moved: vec!["moved".into(), "staged".into()],
+        }
+        .save(&partial)
+        .unwrap();
+        let tasks = [
+            (partial.join("staged/w.onnx"), Task::File { socket: false }),
+            (partial.join("staged"), Task::EmptyDir),
+            (
+                partial.join(MODEL_PARTIAL_RECORD),
+                Task::File { socket: false },
+            ),
+        ];
+        forget_moves(root.path(), &tasks).unwrap();
+        let record: ModelPartialEntries =
+            serde_json::from_slice(&std::fs::read(partial.join(MODEL_PARTIAL_RECORD)).unwrap())
+                .unwrap();
+        assert_eq!(record.moved, vec!["moved".to_owned()]);
+    }
+
+    #[test]
+    fn moves_change_only_in_accepted_records_inside_the_cleanup() {
+        let record = |id: &str| ModelPartialEntries {
+            id: id.into(),
+            files: vec!["work/w.onnx".into()],
+            dirs: Vec::new(),
+            sources: Vec::new(),
+            moved: vec!["work".into()],
+        };
+        let moved = |partial: &Path| {
+            serde_json::from_slice::<ModelPartialEntries>(
+                &std::fs::read(partial.join(MODEL_PARTIAL_RECORD)).unwrap(),
+            )
+            .unwrap()
+            .moved
+        };
+        // A record naming another model is not this folder's.
+        let root = tempfile::tempdir().unwrap();
+        let model = root.path().join("current");
+        let partial = model.join(".partial");
+        std::fs::create_dir_all(partial.join("work")).unwrap();
+        record("previous").save(&partial).unwrap();
+        let tasks = [(partial.join("work/w.onnx"), Task::File { socket: false })];
+        forget_moves(&model, &tasks).unwrap();
+        assert_eq!(moved(&partial), vec!["work".to_owned()]);
+        // A cleanup inside another model's staging leaves that record alone.
+        let other = root.path().join("other");
+        let outer = other.join(".partial");
+        let profile = outer.join("work/profile");
+        std::fs::create_dir_all(&profile).unwrap();
+        record("other").save(&outer).unwrap();
+        let tasks = [(profile.join("config.toml"), Task::File { socket: false })];
+        forget_moves(&profile, &tasks).unwrap();
+        assert_eq!(moved(&outer), vec!["work".to_owned()]);
     }
 
     #[test]

@@ -106,6 +106,7 @@ const SURFACES: &[Surface] = &[
     ("views/providers.rs", "show_terms", Confirm, 1, SharedConfirmation),
     ("views/settings.rs", "confirm_enrollment_delete", Confirm, 1, SharedConfirmation),
     ("views/settings.rs", "confirm_library", Confirm, 1, SharedConfirmation),
+    ("views/settings.rs", "confirm_model_removal", Confirm, 1, SharedConfirmation),
     ("views/settings.rs", "new", Field, 4, Persistent),
     ("views/settings.rs", "open_retention_confirm_dialog", Confirm, 1, SharedConfirmation),
     ("views/settings.rs", "request_model", Confirm, 1, SharedConfirmation),

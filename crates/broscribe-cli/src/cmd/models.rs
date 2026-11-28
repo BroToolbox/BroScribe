@@ -1,4 +1,4 @@
-//! `models list | pull | use | doctor` (design §8.3).
+//! `models list | pull | use | remove | doctor` (design §8.3).
 
 use std::io::Read;
 use std::path::Path;
@@ -222,6 +222,30 @@ fn active_roles(config: &Config, live: Option<&str>, entry: &ModelEntry) -> Vec<
     roles
 }
 
+fn check_model_removable(config: &Config, registry: &Registry, id: &str) -> Result<()> {
+    // Keep protecting a configured dependency even if a user registry edit
+    // made the live profile invalid. Win32 also aliases trailing periods.
+    let live = registry
+        .get(&config.profile.asr)
+        .filter(|asr| !asr.has_role(Role::Live))
+        .and_then(|asr| asr.live_model.as_deref());
+    let matches = |active: &str| {
+        active == id || (std::env::consts::OS == "windows" && active.trim_end_matches('.') == id)
+    };
+    if profile_roles(config)
+        .iter()
+        .any(|(_, candidate)| matches(candidate))
+        || live.is_some_and(matches)
+        || matches(&config.profile.text_embedding)
+    {
+        return Err(Error::Service {
+            code: "model_in_use",
+            message: format!("Model {id} is in use. Switch to another model before deleting it."),
+        });
+    }
+    Ok(())
+}
+
 /// Whether any speaker centroid or person voiceprint of the library was
 /// computed with a model other than `model`.
 fn has_other_embeddings(lib: &Library, model: &str) -> Result<bool> {
@@ -296,6 +320,24 @@ fn reembed_in(
     broscribe_pipeline::reembed(lib, &ctx.deps.decoder, embedder)
 }
 
+#[derive(Clone, Copy)]
+struct UseOptions {
+    allow_unverified_license: bool,
+    require_installed: bool,
+}
+
+impl UseOptions {
+    fn check_install(self, store: &ModelStore, entry: &ModelEntry) -> Result<()> {
+        if self.require_installed && store.doctor(entry, false)? != Health::Installed {
+            return Err(Error::Service {
+                code: "model_missing",
+                message: format!("Download {} before switching to it.", entry.id),
+            });
+        }
+        Ok(())
+    }
+}
+
 /// `models use text_embedding <id>`: a registry text-embedding model of the
 /// model2vec runtime, or a text-embedding provider, checked as
 /// `broscribe_pipeline::vectors::text_model` checks them. Nothing is loaded
@@ -307,9 +349,10 @@ fn use_text_embedding(
     store: &ModelStore,
     data_dir: &Path,
     id: &str,
-    allow_unverified_license: bool,
+    options: UseOptions,
 ) -> Result<()> {
-    let (installed, enabled) = if let Some(entry) = registry.get(id) {
+    let local = registry.get(id);
+    let (installed, enabled) = if let Some(entry) = local {
         if !entry.has_role(Role::TextEmbedding) {
             return Err(Error::InvalidInput(format!(
                 "model {id} is not a text-embedding model"
@@ -321,8 +364,11 @@ fn use_text_embedding(
                 entry.runtime
             )));
         }
-        entry.check_license(allow_unverified_license)?;
-        (Some(store.doctor(entry, false)? == Health::Installed), None)
+        entry.check_license(options.allow_unverified_license)?;
+        (
+            Some(options.require_installed || store.doctor(entry, false)? == Health::Installed),
+            None,
+        )
     } else {
         let providers = ProviderRegistry::load(data_dir)?;
         let Some(entry) = providers.get(id) else {
@@ -342,11 +388,14 @@ fn use_text_embedding(
     };
     let previous = config.profile.text_embedding.clone();
     let changed = previous != id;
-    if changed {
+    if changed || options.require_installed {
         // Only this role, under the data directory's config lock: settings
         // another process saved meanwhile survive. Config only: no library
         // is opened or created.
         Config::update(data_dir, |c| {
+            if let Some(entry) = local {
+                options.check_install(store, entry)?;
+            }
             c.profile.text_embedding = id.to_owned();
             Ok(())
         })?;
@@ -455,7 +504,10 @@ pub(super) fn models(ctx: &mut Ctx<'_>, action: ModelsCmd) -> Result<()> {
                         (!host.is_empty() && !host.contains('@')).then_some(host)
                     }).collect::<std::collections::BTreeSet<_>>(),
                     "platforms": e.platforms,
+                    "platform_supported": supports_this_platform(e),
+                    "languages": e.languages,
                     "state": health_str(&health),
+                    "has_model_files": store.has_model_files(e),
                     "active_for": active_roles(&config, live, e),
                     "accepts_hotwords": e.accepts_hotwords,
                 }));
@@ -597,17 +649,16 @@ pub(super) fn models(ctx: &mut Ctx<'_>, action: ModelsCmd) -> Result<()> {
             role,
             id,
             allow_unverified_license,
+            require_installed,
         } => {
+            let options = UseOptions {
+                allow_unverified_license,
+                require_installed,
+            };
             let role = parse_role(&role)?;
             if role == Role::TextEmbedding {
                 return use_text_embedding(
-                    ctx,
-                    &config,
-                    &registry,
-                    &store,
-                    &data_dir,
-                    &id,
-                    allow_unverified_license,
+                    ctx, &config, &registry, &store, &data_dir, &id, options,
                 );
             }
             let entry = registry.require(&id)?;
@@ -630,7 +681,7 @@ pub(super) fn models(ctx: &mut Ctx<'_>, action: ModelsCmd) -> Result<()> {
             } else {
                 None
             };
-            let installed = store.doctor(entry, false)? == Health::Installed;
+            let installed = require_installed || store.doctor(entry, false)? == Health::Installed;
             // The live preview runs the profile's declared live model, the
             // ASR model itself or the one it names: resolved before anything
             // is saved (a profile without a valid one is refused, never
@@ -659,11 +710,12 @@ pub(super) fn models(ctx: &mut Ctx<'_>, action: ModelsCmd) -> Result<()> {
             } else {
                 None
             };
-            if changed || library.is_some() {
+            if changed || library.is_some() || require_installed {
                 // Only this role, under the data directory's config lock:
                 // settings another process saved meanwhile survive. Config
                 // only: re-embedding below takes the library's own locks.
                 config = Config::update(&data_dir, |c| {
+                    options.check_install(&store, entry)?;
                     role_slot(c, role).map(|slot| *slot = id.clone())
                 })?
                 .0;
@@ -737,6 +789,30 @@ pub(super) fn models(ctx: &mut Ctx<'_>, action: ModelsCmd) -> Result<()> {
                     )?;
                 }
                 Ok(())
+            })
+        }
+        ModelsCmd::Remove { id, yes } => {
+            if !yes {
+                return Err(Error::InvalidInput(
+                    "confirm model removal with --yes".into(),
+                ));
+            }
+            let entry = registry.require(&id)?;
+            check_model_removable(&config, &registry, &id)?;
+            let lock = store.lock_for_removal(entry)?;
+            let (_, removed) = Config::update(&data_dir, |current| {
+                check_model_removable(current, &registry, &id)?;
+                match &lock {
+                    Some(_) => store.remove_model_files(entry),
+                    None => Ok(false),
+                }
+            })?;
+            ctx.emit(json!({ "id": id, "removed": removed }), |out| {
+                if removed {
+                    writeln!(out, "Deleted the downloaded files for {id}.")
+                } else {
+                    writeln!(out, "{id} has no downloaded files.")
+                }
             })
         }
         ModelsCmd::Doctor { live, profile } => {
@@ -992,6 +1068,7 @@ mod tests {
                         role: role.into(),
                         id: id.into(),
                         allow_unverified_license: true,
+                        require_installed: false,
                     },
                 )
             },

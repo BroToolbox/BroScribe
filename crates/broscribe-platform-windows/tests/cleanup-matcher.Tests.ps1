@@ -48,10 +48,52 @@ try {
   $partial = Join-Path $model '.partial'
   [void][IO.Directory]::CreateDirectory($partial)
   [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
-    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"]}')
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":["model.tar.bz2"]}')
+  $staged = Read-ModelShape $model
+  foreach ($path in @('.partial/assets/model.onnx', '.partial/model.tar.bz2')) {
+    if (!(Matches-CleanupRule $path $staged 'file')) { throw ('Missing staged file ' + $path) }
+  }
+  foreach ($path in @('assets/model.onnx', 'model.tar.bz2')) {
+    if (Matches-CleanupRule $path $staged 'file') { throw ('Claimed root file before install ' + $path) }
+  }
+  [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":["model.tar.bz2"],"moved":["assets"]}')
   $promoted = Read-ModelShape $model
   foreach ($path in @('assets/model.onnx', '.partial/assets/model.onnx')) {
     if (!(Matches-CleanupRule $path $promoted 'file')) { throw ('Missing promoted file ' + $path) }
+  }
+  if (Matches-CleanupRule 'model.tar.bz2' $promoted 'file') { throw 'Claimed the archive at the model root' }
+  [void][IO.Directory]::CreateDirectory((Join-Path $partial 'assets'))
+  $unmoved = Read-ModelShape $model
+  if (Matches-CleanupRule 'assets/model.onnx' $unmoved 'file') { throw 'Claimed a root file before its staged copy moved' }
+  [IO.Directory]::Delete((Join-Path $partial 'assets'))
+  [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":[],"moved":[]}')
+  $unrecorded = Read-ModelShape $model
+  if (Matches-CleanupRule 'assets/model.onnx' $unrecorded 'file') { throw 'Claimed a root file install never recorded moving' }
+  [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"]}')
+  $legacy = Read-ModelShape $model
+  if (!(Matches-CleanupRule '.partial/assets/model.onnx' $legacy 'file')) { throw 'Rejected a v0.1.0 staging record' }
+  if (Matches-CleanupRule 'assets/model.onnx' $legacy 'file') { throw 'A v0.1.0 staging record claimed a root file' }
+  # An install marker alone claims installed paths, never staged copies.
+  $installed = Join-Path $temp 'installed-model'
+  [void][IO.Directory]::CreateDirectory((Join-Path $installed '.partial'))
+  [IO.File]::WriteAllText((Join-Path $installed '.verified'),
+    '{"id":"installed-model","files":[{"path":"model.onnx"}],"sources":[{"file":"model.tar.bz2"}]}')
+  $marked = Read-ModelShape $installed
+  if (!(Matches-CleanupRule 'model.onnx' $marked 'file')) { throw 'Missing an installed file' }
+  foreach ($path in @('.partial/model.onnx', '.partial/model.tar.bz2')) {
+    if (Matches-CleanupRule $path $marked 'file') { throw ('An install marker claimed staged ' + $path) }
+  }
+  # Cleaning a staging folder itself never changes its model's record.
+  $recordPath = Join-Path $partial '.entries.json'
+  [IO.File]::WriteAllText($recordPath,
+    '{"id":"test-model","files":["config.toml"],"dirs":[],"moved":["config.toml"]}')
+  $before = [IO.File]::ReadAllBytes($recordPath)
+  Clear-ModelMoves $partial @(@{ path = (Join-Path $partial 'config.toml'); kind = 'file' })
+  if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($recordPath)) -ne [Convert]::ToBase64String($before)) {
+    throw 'Changed the staging record of a model above the cleaned folder'
   }
 
   $profile = Join-Path $temp 'orphan-profile'
