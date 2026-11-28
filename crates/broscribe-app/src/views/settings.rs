@@ -51,7 +51,7 @@ use crate::state::{AppState, OtherLibrary, SettingsPage};
 use crate::ui::format::bytes;
 use crate::ui::kit::{self, StatusKind};
 use crate::ui::type_scale::{TextRole, TextRoleExt as _};
-use crate::ui::{heading, text_line, title};
+use crate::ui::{Spoken as _, heading, text_line, title};
 use crate::views::agents::AgentsView;
 use crate::views::generate::{save_instructions_command, saved_instructions};
 use crate::views::import_sheet::ImportRuns;
@@ -1704,8 +1704,7 @@ impl SettingsView {
                 .default_value(seen_instructions.clone())
         });
         let words = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .placeholder("One per line: product names, acronyms, colleagues’ names")
+            TextareaState::new(window, cx).placeholder("Product names, acronyms, colleagues’ names")
         });
         let settings = cx.weak_entity();
         let assistant_closed = crate::ui::setup_window::on_closed(cx, move |cx| {
@@ -2061,7 +2060,7 @@ impl SettingsView {
         let focus = self.words.read(cx).focus_handle(cx);
         let scroll = self.page_scroll.clone();
         window.on_next_frame(move |window, cx| {
-            // Title, description, speech models, language and Your voice.
+            // Title, description, speech models and language, Your voice, speaker grouping.
             scroll.scroll_to_top_of_item(5);
             focus.focus(window, cx);
         });
@@ -3875,15 +3874,8 @@ impl SettingsView {
         let count = config.hotwords.len();
         let saving = self.saving.contains("word-list");
         kit::stack()
+            .w_full()
             .child(heading("settings-word-list", "Word list"))
-            .child(muted(
-                "settings-word-count",
-                format!(
-                    "{count} {} saved",
-                    crate::ui::format::plural(count as u64, "word", "words")
-                ),
-                cx,
-            ))
             .when_some(
                 hotword_note(&self.models.list, &config.profile.asr),
                 |group, note| {
@@ -3895,27 +3887,51 @@ impl SettingsView {
                     ))
                 },
             )
-            .child(kit::field(
-                "settings-words-title",
-                "Words",
-                None,
-                |label| {
-                    Textarea::new(&self.words)
-                        .h(gpui::rems(7.5))
-                        .aria_label(label)
-                        .disabled(saving)
-                },
-                cx,
-            ))
+            .child(
+                kit::field(
+                    "settings-words-title",
+                    "Words to add",
+                    Some((
+                        "settings-words-hint".into(),
+                        "Enter one word or phrase per line.".into(),
+                    )),
+                    |label| {
+                        Textarea::new(&self.words)
+                            .h(gpui::rems(7.5))
+                            .aria_label(label)
+                            .disabled(saving)
+                    },
+                    cx,
+                )
+                .w_full(),
+            )
             .child(
                 Button::new("settings-words-save")
-                    .label("Save")
+                    .label("Add words")
                     .map(|button| kit::primary(button, saving, cx))
                     .self_start()
                     .disabled(saving)
                     .on_click(cx.listener(|this, _, window, cx| this.save_words(window, cx))),
             )
             .children(self.setting_notice("word-list", cx))
+            .child(muted(
+                "settings-word-count",
+                format!(
+                    "{count} {} saved",
+                    crate::ui::format::plural(count as u64, "word", "words")
+                ),
+                cx,
+            ))
+            .when(count > 0, |group| {
+                group.child(div().w_full().flex().flex_wrap().gap_1().children(
+                    config.hotwords.iter().enumerate().map(|(index, word)| {
+                        kit::tag_chip(word.clone(), cx)
+                            .id(("settings-saved-word", index))
+                            .spoken(Role::Label, word.clone())
+                            .max_w_full()
+                    }),
+                ))
+            })
     }
 
     fn render_speech_models(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -6680,6 +6696,53 @@ mod tests {
             }
             assert!(tree.nodes.iter().all(|node| node.name != "Models"));
         });
+    }
+
+    #[gpui::test]
+    fn word_list_shows_saved_entries_and_keeps_typed_words_on_one_line(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, window) =
+            settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
+        let mut visual = gpui::VisualTestContext::from_window(window.into(), cx);
+        visual.simulate_resize(gpui::size(px(640.), px(480.)));
+        window
+            .update(&mut visual, |view, window, cx| {
+                state.update(cx, |state, cx| {
+                    let mut config = state.config().clone();
+                    config.hotwords = vec!["Acorn Labs".into(), "Sabiá".into()];
+                    state.set_config(config, cx);
+                });
+                view.set_page(SettingsPage::Transcription, window, cx);
+                view.page_scroll.scroll_to_top_of_item(5);
+                view.words
+                    .update(cx, |input, cx| input.set_value("TEST", window, cx));
+            })
+            .unwrap();
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.set_rem_size(px(21.));
+            let tree = crate::ui::a11y_tree::draw_and_read(window, cx);
+            for (id, text) in [
+                ("settings-word-count", "2 words saved"),
+                ("settings-saved-word-0", "Acorn Labs"),
+                ("settings-saved-word-1", "Sabiá"),
+                ("settings-words-save", "Add words"),
+            ] {
+                assert_eq!(tree.read(tree.find(id)).1, text);
+            }
+        });
+        window
+            .update(&mut visual, |view, _, cx| {
+                let input = view.words.read(cx);
+                let card = view.page_scroll.bounds_for_item(5).unwrap();
+                let editor = input.input_bounds();
+                assert!(editor.size.width > card.size.width * 0.75, "{editor:?}");
+                let first = input.range_to_bounds(&(0..1)).unwrap();
+                let last = input.range_to_bounds(&(3..4)).unwrap();
+                assert_eq!(first.origin.y, last.origin.y);
+                assert!(last.origin.x > first.origin.x);
+            })
+            .unwrap();
     }
 
     #[gpui::test]
