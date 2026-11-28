@@ -1,0 +1,29 @@
+{
+  "images": {
+    "library.png": {
+      "height": 800,
+      "pixels_sha256": "eb1ceab4665c1d1b0e83630fb5f07b7cea7028fb2c5495a0cf0c92d928c338c9",
+      "sha256": "a13607c7ad2478fb59a9e42714e6d15171677578f391af284d047df1004cac56",
+      "width": 1280
+    },
+    "meeting-dark.png": {
+      "height": 800,
+      "pixels_sha256": "75b77f395b4e5b2e83907de429a04b442a051ac6566e3044b7935f8956fee544",
+      "sha256": "43b6d0dcaf42d82997aa3fa09f1a9abe6bf0b1c74293069cd3b7ae651aa9e580",
+      "width": 1280
+    },
+    "meeting.png": {
+      "height": 800,
+      "pixels_sha256": "d8775b2937377884b78ed6567291b959f1199ed6d6ae36b1b568a42e5aa6a403",
+      "sha256": "3a145a60b238ef543b3836bd311203271e3026b00107651883ce32b11804b9a6",
+      "width": 1280
+    },
+    "recording.png": {
+      "height": 800,
+      "pixels_sha256": "327928af91f0d48e90eaeba86d4ec142332c55f727a001bd4ba8fb9c68f6eecf",
+      "sha256": "b5b4e535d45dc5ff906e73020a128ff06039f406bc7870e04a83ddeb4fafe6e6",
+      "width": 1280
+    }
+  },
+  "source_commit": "0bc870b15c80d0db363a5e29038d6f864eb07962"
+}
