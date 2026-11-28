@@ -327,6 +327,11 @@ impl RecordingPanel {
             more_focus: cx.focus_handle(),
             delete: None,
             live_naming: None,
+            dock_target: dock::DockTarget::SpeakingNow,
+            dock_order: (None, Vec::new()),
+            dock_known: Rc::default(),
+            dock_known_revision: None,
+            dock_focus: cx.focus_handle(),
             live_status_turn: None,
             live_revision: 0,
             transcript: Self::following_list(cx),
@@ -797,6 +802,11 @@ impl RecordingPanel {
             cx.stop_propagation();
             return;
         }
+        // 1–4 name the turn the "Speaking now" dock shows.
+        if self.dock_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let destination = match key {
             "up" => selected.map_or(current, |ix| ix.saturating_sub(1)),
             "down" => selected.map_or(current, |ix| (ix + 1).min(last)),
@@ -1072,7 +1082,7 @@ impl RecordingPanel {
     }
 
     /// A live decision is in flight (one at a time).
-    fn live_pending(&self) -> bool {
+    pub(super) fn live_pending(&self) -> bool {
         self.controls
             .iter()
             .any(|(key, s)| key.control == Control::Live && s.status == ControlStatus::Pending)
@@ -1981,6 +1991,8 @@ impl RecordingPanel {
                 PersonPickerEvent::Cancelled => this.cancel_live_naming(window, cx),
             },
         );
+        // The dock names the same turn while its picker is open.
+        self.dock_target = dock::DockTarget::Turn(turn_id.to_owned());
         self.live_naming = Some(LiveNaming {
             shown,
             picker,
@@ -2006,6 +2018,7 @@ impl RecordingPanel {
     }
 
     pub fn cancel_live_naming(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dock_target = dock::DockTarget::SpeakingNow;
         if self.live_naming.take().is_some() {
             self.transcript_focus.focus(window, cx);
         }
@@ -2046,7 +2059,7 @@ impl RecordingPanel {
     /// Sends one decision on `shown`; the answer's row replaces the shown
     /// one (only for the session it was made in, and only while the row is
     /// still held). Its status stays on that row.
-    fn live_decision(
+    pub(super) fn live_decision(
         &mut self,
         shown: ShownTurn,
         action: LiveAction,
@@ -2058,6 +2071,8 @@ impl RecordingPanel {
             return;
         }
         self.live_naming = None;
+        // After a decision on an older turn the dock follows the speaker again.
+        self.dock_target = dock::DockTarget::SpeakingNow;
         self.live_status_turn = Some(shown.turn_id.clone());
         let call = shown.call(action, person_ref);
         self.submit(
@@ -2086,7 +2101,7 @@ impl RecordingPanel {
 
     /// Records the outcome of a live row that was not sent (its picker
     /// closed because the row changed or left the preview).
-    fn set_live_status(&mut self, session: &str, turn: &str, status: ControlStatus) {
+    pub(super) fn set_live_status(&mut self, session: &str, turn: &str, status: ControlStatus) {
         self.generation += 1;
         self.live_status_turn = Some(turn.to_owned());
         self.live_revision += 1;
@@ -2130,7 +2145,10 @@ impl RecordingPanel {
         actions.push(LiveRowAction {
             action: LiveAction::Name,
             id: "name",
-            label: "Name…",
+            label: match turn.status {
+                LiveTurnStatus::Suggested | LiveTurnStatus::Named => "Name…",
+                _ => "Who’s this?",
+            },
             shortcut: if suggested.is_some() { "n" } else { "enter" },
             spoken: format!("Name the speaker of the line at {position}"),
         });
@@ -2375,6 +2393,7 @@ impl RecordingPanel {
     fn daemon_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.seen_revision = Some(self.model(cx).revision());
         self.sync_roster(cx);
+        self.sync_dock_people(cx);
         if self.discard_confirm.as_deref().is_some_and(|session| {
             !self.daemon.read(cx).connected || !self.model(cx).discardable(session)
         }) {
@@ -2558,6 +2577,7 @@ impl RecordingPanel {
                 self.transcript_focus.focus(window, cx);
             }
             self.live_naming = None;
+            self.dock_target = dock::DockTarget::SpeakingNow;
             self.set_live_status(
                 &shown.session_id,
                 &shown.turn_id,
@@ -4337,6 +4357,13 @@ impl Render for RecordingPanel {
             self.renders += 1;
         }
         let journal_rows = self.library_journal_rows(window, cx);
+        let speaking_dock = (!self.compact_layout() && self.tab == RecordingPanelTab::Transcript)
+            .then(|| {
+                // Below this height the dock keeps to two lines.
+                let roomy = window.viewport_size().height >= px(600.);
+                self.speaking_dock(roomy, cx)
+            })
+            .flatten();
         let daemon = self.daemon.read(cx);
         let model = &daemon.panel;
         let connected = daemon.connected;
@@ -5075,6 +5102,7 @@ impl Render for RecordingPanel {
                             ))
                         }),
                 )
+                .children(speaking_dock)
                 .when(connected, |el| el.children(self.docked_line_picker(cx)))
                 .children(self.transcript_menu_layer(window));
             }

@@ -2218,6 +2218,7 @@ mod tests {
                 setup: None,
                 participants: Vec::new(),
                 observed_roster: Vec::new(),
+                expected_roster: Vec::new(),
                 tags: Vec::new(),
                 auto_stop: None,
                 health: health.clone(),

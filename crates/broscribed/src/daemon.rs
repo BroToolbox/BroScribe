@@ -168,11 +168,13 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The running session and what the daemon keeps beside it.
 pub(crate) struct Active {
     pub handle: Box<dyn SessionHandle>,
-    started_at: DateTime<FixedOffset>,
+    pub(crate) started_at: DateTime<FixedOffset>,
     title: Option<String>,
     pub app: Option<String>,
     pub reader: Option<(String, u32)>,
     pub observed_roster: Vec<broscribe_readers::RosterMember>,
+    /// The matching calendar event's invitees (`RecordingState.expected_roster`).
+    pub expected_roster: Vec<broscribe_readers::RosterMember>,
     live_queue: Arc<LiveQueue>,
     live_stop: Arc<Shutdown>,
     /// Live speaker preview of this session (plan D).
@@ -380,6 +382,7 @@ impl Shared {
                 setup: st.setup,
                 participants: st.participants,
                 observed_roster: a.observed_roster.clone(),
+                expected_roster: a.expected_roster.clone(),
                 tags: st.tags,
                 auto_stop: Some(a.auto_stop.status(&lock(&self.auto_stop_candidates))),
                 health: a.handle.health(),
@@ -2928,6 +2931,7 @@ fn start_recording(
         reader: crate::readers::resolve_for(s, params.app.as_deref()),
         app: params.app,
         observed_roster: Vec::new(),
+        expected_roster: Vec::new(),
         live_queue,
         live_stop,
         live_preview,
