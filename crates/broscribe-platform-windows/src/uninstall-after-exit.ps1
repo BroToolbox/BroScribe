@@ -540,7 +540,9 @@ function Clear-ModelMoves($folder, $tasks) {
   }
   foreach ($partial in $staged.Keys) {
     $file = [IO.Path]::Combine($partial, '.entries.json')
-    $record = Read-StagingRecord ([IO.Path]::GetDirectoryName($partial))
+    $modelFolder = [IO.Path]::GetDirectoryName($partial)
+    if (!(Is-Within $modelFolder $folder)) { continue }
+    $record = Read-StagingRecord $modelFolder
     if (!$record -or $null -eq $record.moved) { continue }
     $remaining = @(@($record.moved) | Where-Object { !$staged[$partial].Contains([string]$_) })
     if ($remaining.Count -eq @($record.moved).Count) { continue }

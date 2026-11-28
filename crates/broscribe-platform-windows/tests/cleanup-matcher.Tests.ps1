@@ -76,6 +76,15 @@ try {
   $legacy = Read-ModelShape $model
   if (!(Matches-CleanupRule '.partial/assets/model.onnx' $legacy 'file')) { throw 'Rejected a v0.1.0 staging record' }
   if (Matches-CleanupRule 'assets/model.onnx' $legacy 'file') { throw 'A v0.1.0 staging record claimed a root file' }
+  # Cleaning a staging folder itself never changes its model's record.
+  $recordPath = Join-Path $partial '.entries.json'
+  [IO.File]::WriteAllText($recordPath,
+    '{"id":"test-model","files":["config.toml"],"dirs":[],"moved":["config.toml"]}')
+  $before = [IO.File]::ReadAllBytes($recordPath)
+  Clear-ModelMoves $partial @(@{ path = (Join-Path $partial 'config.toml'); kind = 'file' })
+  if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($recordPath)) -ne [Convert]::ToBase64String($before)) {
+    throw 'Changed the staging record of a model above the cleaned folder'
+  }
 
   $profile = Join-Path $temp 'orphan-profile'
   $journal = Join-Path $profile 'journal'
