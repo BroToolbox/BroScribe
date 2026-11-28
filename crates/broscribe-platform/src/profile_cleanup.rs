@@ -358,10 +358,11 @@ pub struct ModelPartialEntries {
     /// Downloads that stay in `.partial`, such as an archive before unpacking.
     #[serde(default)]
     pub sources: Vec<String>,
-    /// Set just before install moves `files` and `dirs` into the model
-    /// folder. Only then can those names at the model root be BroScribe's.
+    /// Top-level entries install has started moving into the model folder,
+    /// each saved just before its rename. Only these root names can be
+    /// BroScribe's, and only once they have left `.partial`.
     #[serde(default)]
-    pub promoting: bool,
+    pub moved: Vec<String>,
 }
 
 /// Files the macOS Finder and Windows Explorer write into folders they show.
@@ -466,15 +467,17 @@ fn model_shape(root: &Path) -> Option<Shape> {
                     .iter()
                     .chain(&record.dirs)
                     .chain(&record.sources)
+                    .chain(&record.moved)
                     .all(|path| safe(path))
         })
     {
         shape.files.push(format!(".partial/{MODEL_PARTIAL_RECORD}"));
-        // Install renames each top-level entry out of staging. A root name is
-        // BroScribe's only once its staged entry has moved.
+        // Install records each top-level entry before renaming it out of
+        // staging. A root name is BroScribe's only once that entry has moved;
+        // a staged copy removed some other way proves nothing.
         let moved = |path: &str| {
             let top = path.split('/').next().unwrap_or(path);
-            entries.promoting
+            entries.moved.iter().any(|name| name == top)
                 && std::fs::symlink_metadata(partial.join(top))
                     .is_err_and(|error| error.kind() == ErrorKind::NotFound)
         };
@@ -875,7 +878,7 @@ mod tests {
             files: vec!["assets/model.onnx".into()],
             dirs: vec!["assets".into()],
             sources: Vec::new(),
-            promoting: true,
+            moved: vec!["assets".into()],
         }
         .save(&partial)
         .unwrap();
@@ -919,29 +922,41 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let model = root.path().join("models/synthetic.model");
         let partial = model.join(".partial");
-        for top in ["moved", "staged"] {
+        // `moved` left staging. `staged` was recorded but not yet renamed.
+        // `removed` lost its staged copy to an interrupted removal.
+        for top in ["moved", "staged", "removed"] {
             std::fs::create_dir_all(model.join(top)).unwrap();
         }
         std::fs::create_dir_all(partial.join("staged")).unwrap();
         std::fs::write(partial.join("staged/w.onnx"), b"staged").unwrap();
         std::fs::write(model.join("moved/w.onnx"), b"moved").unwrap();
-        let keep = model.join("staged/w.onnx");
-        std::fs::write(&keep, b"synthetic user file").unwrap();
+        let keep = ["staged", "removed"].map(|top| model.join(top).join("w.onnx"));
+        for path in &keep {
+            std::fs::write(path, b"synthetic user file").unwrap();
+        }
         ModelPartialEntries {
             id: "synthetic.model".into(),
-            files: vec!["moved/w.onnx".into(), "staged/w.onnx".into()],
+            files: ["moved", "staged", "removed"]
+                .map(|top| format!("{top}/w.onnx"))
+                .into(),
             dirs: Vec::new(),
             sources: Vec::new(),
-            promoting: true,
+            moved: vec!["moved".into(), "staged".into()],
         }
         .save(&partial)
         .unwrap();
-        let cleanup = clean(root.path(), "data", true, &[], false).unwrap();
-        // The unclaimed root folder is kept whole, with the user's file in it.
-        assert_eq!(cleanup.kept, vec![model.join("staged")]);
+        let mut cleanup = clean(root.path(), "data", true, &[], false).unwrap();
+        cleanup.kept.sort();
+        // Unclaimed root folders are kept whole, with the user's files.
+        assert_eq!(
+            cleanup.kept,
+            vec![model.join("removed"), model.join("staged")]
+        );
         assert!(!model.join("moved").exists());
         assert!(!partial.join("staged/w.onnx").exists());
-        assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
+        for path in keep {
+            assert_eq!(std::fs::read(path).unwrap(), b"synthetic user file");
+        }
     }
 
     #[test]

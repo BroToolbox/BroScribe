@@ -272,7 +272,7 @@ fn stage(
             .filter(|f| f.archive)
             .map(|f| f.file_name().to_owned())
             .collect(),
-        promoting: false,
+        moved: Vec::new(),
     };
     partial_entries.save(partial)?;
     let mut installed = Vec::new();
@@ -353,15 +353,20 @@ fn install(
     mut record: ModelPartialEntries,
 ) -> Result<()> {
     clean_download(dir, entry, ModelCleanup::InstallDownload)?;
-    // From here an interrupted install leaves BroScribe's files at the root.
-    record.promoting = true;
-    record.save(partial)?;
     for item in read_dir(partial)? {
         if item.file_name() == MODEL_PARTIAL_RECORD {
             continue;
         }
         let from = item.path();
-        let to = dir.join(item.file_name());
+        let name = item.file_name();
+        let name = name
+            .to_str()
+            .ok_or_else(|| Error::io_at(&from, std::io::ErrorKind::InvalidData.into()))?;
+        // Recorded before the rename so an interrupted install can claim
+        // the entry at the root once it has left staging.
+        record.moved.push(name.to_owned());
+        record.save(partial)?;
+        let to = dir.join(name);
         std::fs::rename(&from, &to).map_err(|e| Error::io_at(&from, e))?;
     }
     store.mark_verified(&VerifiedMarker {
@@ -882,7 +887,7 @@ mod tests {
             files: vec!["synthetic/w.onnx".into()],
             dirs: Vec::new(),
             sources: vec!["synthetic.tar.bz2".into()],
-            promoting: true,
+            moved: vec!["synthetic".into()],
         }
         .save(&partial)
         .unwrap();
@@ -955,21 +960,28 @@ mod tests {
     fn a_root_file_restored_before_its_staged_copy_moved_is_kept() {
         let mirror = tempfile::tempdir().unwrap();
         let model = archive_entry(mirror.path(), &tar_bz2("synthetic", &[("w.onnx", b"w")]));
-        for remove in [false, true] {
+        // Install recorded the entry, then stopped before renaming it. Or an
+        // interrupted removal deleted the staged copy of an unrecorded entry.
+        for (recorded, remove) in [(true, false), (true, true), (false, false), (false, true)] {
             let data = tempfile::tempdir().unwrap();
             let store = ModelStore::new(data.path());
             let dir = store.model_dir(&model.id).unwrap();
             let partial = dir.join(PARTIAL_DIR);
-            // Install flagged the record, then stopped before its first rename.
             std::fs::create_dir_all(partial.join("synthetic")).unwrap();
             std::fs::create_dir_all(dir.join("synthetic")).unwrap();
-            std::fs::write(partial.join("synthetic/w.onnx"), b"w").unwrap();
+            if recorded {
+                std::fs::write(partial.join("synthetic/w.onnx"), b"w").unwrap();
+            }
             ModelPartialEntries {
                 id: model.id.clone(),
                 files: vec!["synthetic/w.onnx".into()],
                 dirs: Vec::new(),
                 sources: vec!["synthetic.tar.bz2".into()],
-                promoting: true,
+                moved: if recorded {
+                    vec!["synthetic".into()]
+                } else {
+                    Vec::new()
+                },
             }
             .save(&partial)
             .unwrap();

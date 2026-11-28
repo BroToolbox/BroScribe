@@ -402,15 +402,17 @@ function Read-ModelShape($folder) {
     $entries = Read-ModelRecord ([IO.Path]::Combine($partial, '.entries.json')) $id
     $paths = @($entries.files) + @($entries.dirs)
     if ($null -ne $entries.sources) { $paths += @($entries.sources) }
+    $movedNames = @()
+    if ($null -ne $entries.moved) { $movedNames = @($entries.moved); $paths += $movedNames }
     if ($entries -and @($paths -match $badPath).Count -eq 0) {
       $model.files += '.partial/.entries.json'
-      # Install renames each top-level entry out of staging. A root name is
-      # BroScribe's only once its staged entry has moved.
-      $promoting = $entries.promoting -is [bool] -and $entries.promoting
+      # Install records each top-level entry before renaming it out of
+      # staging. A root name is BroScribe's only once that entry has moved.
       $moved = {
         param($name)
-        $staged = [IO.Path]::Combine($partial, $name.Split('/')[0])
-        $promoting -and !([IO.File]::Exists($staged) -or [IO.Directory]::Exists($staged))
+        $top = $name.Split('/')[0]
+        $staged = [IO.Path]::Combine($partial, $top)
+        ($movedNames -ccontains $top) -and !([IO.File]::Exists($staged) -or [IO.Directory]::Exists($staged))
       }
       foreach ($file in $entries.files) {
         Add-ModelPath $model ('.partial/' + $file) $false

@@ -57,7 +57,7 @@ try {
     if (Matches-CleanupRule $path $staged 'file') { throw ('Claimed root file before install ' + $path) }
   }
   [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
-    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":["model.tar.bz2"],"promoting":true}')
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":["model.tar.bz2"],"moved":["assets"]}')
   $promoted = Read-ModelShape $model
   foreach ($path in @('assets/model.onnx', '.partial/assets/model.onnx')) {
     if (!(Matches-CleanupRule $path $promoted 'file')) { throw ('Missing promoted file ' + $path) }
@@ -67,6 +67,10 @@ try {
   $unmoved = Read-ModelShape $model
   if (Matches-CleanupRule 'assets/model.onnx' $unmoved 'file') { throw 'Claimed a root file before its staged copy moved' }
   [IO.Directory]::Delete((Join-Path $partial 'assets'))
+  [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":[],"moved":[]}')
+  $unrecorded = Read-ModelShape $model
+  if (Matches-CleanupRule 'assets/model.onnx' $unrecorded 'file') { throw 'Claimed a root file install never recorded moving' }
   [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
     '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"]}')
   $legacy = Read-ModelShape $model
