@@ -1292,7 +1292,7 @@ Status: M1–M7 are implemented and shipped in 0.1.0. This describes delivered c
 | M6 | Microsoft 365 / Google integrations, read-only scopes and fenced refresh | implemented; sign-in/tenant consent *verify* |
 | M7 | Windows/Linux native traits, Unix transport, Windows pipe transport and target build tooling | implemented; compile scope in §13, desktop runtime *verify* |
 | Release 0.1.0 | First public release (2026-11-28): notarized macOS arm64 disk image and ZIP, unsigned Windows x64 ZIP, Linux x64 and arm64 tar.gz, signed update envelope on GitHub Releases | published; native desktop and update checks carried over in [acceptance.md](acceptance.md) |
-| Next release | Identify voices mode in Review, Speaking now dock in the recording window, model switching and deletion in Settings with new trusted models, removable Word list terms; first update delivered through the updater from 0.1.0 | in development on `main`; see `[Unreleased]` in [CHANGELOG.md](../CHANGELOG.md) |
+| Release 0.2.0 | Identify voices mode in Review, Speaking now dock in the recording window, model switching and deletion in Settings with new trusted models, removable Word list terms; first update delivered through the updater from 0.1.0 | release in preparation (2026-11-28); see [CHANGELOG.md](../CHANGELOG.md) and [acceptance.md](acceptance.md) |
 | Remediation (2026-11) | Hardening and features across runtime, core, pipeline, platforms, integrations, interface, CLI/MCP, release and cleanup, plus three recording behaviours reported in use (meeting end not saving, panel staying after capture, live transcript scrolling) | in progress; item status in [acceptance.md](acceptance.md) |
 
 **Acceptance still needed:**

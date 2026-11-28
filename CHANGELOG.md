@@ -5,6 +5,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-28
+
+The first release that installations of 0.1.0 receive through the in-app
+updater.
+
 ### Added
 
 - **Identify voices**: a focused, keyboard-driven mode in the review queue that
@@ -48,5 +53,6 @@ envelope.
 
 See the [verification page](docs/acceptance.md) for current platform evidence.
 
-[Unreleased]: https://github.com/BroToolbox/BroScribe/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/BroToolbox/BroScribe/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/BroToolbox/BroScribe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BroToolbox/BroScribe/releases/tag/v0.1.0

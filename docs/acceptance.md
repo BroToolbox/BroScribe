@@ -20,12 +20,12 @@ observed on a real system stays open here and *verify* in the design document.
 - [ ] The envelope refresh workflow ran once by hand and once on its schedule.
 
 The native checks below were not completed before 0.1.0 was published. They
-carry over to the next release.
+carry over to 0.2.0.
 
-## Next release
+## Release 0.2.0
 
-The next release is the first one that existing installations receive through
-the updater, so the update checks run from the published 0.1.0 envelope.
+The first release that existing installations receive through the updater, so
+the update checks run from an installed 0.1.0.
 
 - [ ] Every [CI lane](release.md#continuous-integration) passed on the release commit.
 - [ ] The release workflow produced and verified every archive, checksum and provenance file and the notarized macOS disk image, and the signed update envelope verified with the compiled release key.
