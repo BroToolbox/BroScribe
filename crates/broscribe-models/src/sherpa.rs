@@ -697,6 +697,125 @@ mod tests {
             SherpaProvider::new(registry, &data_dir)
         }
 
+        #[test]
+        // The mirror also includes a 16 kHz mono fdr.wav from the public-domain
+        // inauguration recording, converted to PCM from seconds 2 through 7.
+        // https://commons.wikimedia.org/wiki/File:First_Inauguration_of_FDR_-_Fear_Itself_Excerpt.ogg
+        #[ignore = "needs the pinned downloads and fdr.wav in BROSCRIBE_CATALOG_MIRROR"]
+        fn expanded_catalog_runs_in_the_existing_adapters() {
+            use crate::text_embedding::{Model2VecEmbedder, TextEmbedder};
+
+            let mirror = PathBuf::from(std::env::var_os("BROSCRIBE_CATALOG_MIRROR").unwrap());
+            let data = tempfile::tempdir().unwrap();
+            let store = ModelStore::new(data.path());
+            let registry = Registry::builtin().unwrap();
+            let execution = crate::ExecutionContext::new(
+                broscribe_platform_native::NativePlatform::process_tree_control(),
+                broscribe_platform_native::NativePlatform::trust_store(),
+            );
+            let whisper = ["whisper-base", "whisper-small"];
+            let searches = [
+                ("potion-base-8m", 256),
+                ("potion-retrieval-32m", 512),
+                ("blink-multilingual-64m-int8", 256),
+            ];
+            let speaker = "wespeaker-resnet34-lm";
+            let diarization = "pyannote-segmentation-3.0";
+            for id in whisper
+                .into_iter()
+                .chain(searches.map(|(id, _)| id))
+                .chain([speaker, diarization])
+            {
+                let entry = registry.require(id).unwrap();
+                let files = mirror.join(id);
+                assert!(
+                    entry
+                        .files
+                        .iter()
+                        .all(|file| files.join(file.file_name()).is_file()),
+                    "{id}"
+                );
+                let options = PullOptions {
+                    mirror: Some(files),
+                    ..Default::default()
+                };
+                pull(entry, data.path(), &options, &mut |_, _| {}, &execution).unwrap();
+                assert_eq!(store.doctor(entry, true).unwrap(), Health::Installed);
+            }
+
+            let models = SherpaProvider::new(registry, data.path());
+            let sample = store.model_dir(whisper[0]).unwrap().join("jfk.wav");
+            let wave = so::Wave::read(sample.to_str().unwrap()).unwrap();
+            assert_eq!(wave.sample_rate(), SAMPLE_RATE);
+            let audio = wave.samples();
+            for id in whisper {
+                let result = models
+                    .load_whisper(id)
+                    .unwrap()
+                    .transcribe_with(audio, Some("en"))
+                    .unwrap();
+                assert!(
+                    result.text.to_lowercase().contains("country"),
+                    "{id}: {}",
+                    result.text
+                );
+                assert!(!result.tokens.is_empty(), "{id}");
+            }
+            let speaker_model = models.load_speaker_embedder(speaker).unwrap();
+            let segment = |start: usize, end: usize| {
+                &audio[start * SAMPLE_RATE as usize..end * SAMPLE_RATE as usize]
+            };
+            let vector = speaker_model.embed(segment(1, 5)).unwrap().unwrap();
+            let norm = vector.iter().map(|value| value * value).sum::<f32>();
+            assert_eq!(vector.len(), 256);
+            assert!((norm - 1.0).abs() < 1e-4, "{norm}");
+            let same = speaker_model.embed(segment(6, 10)).unwrap().unwrap();
+            let negative = mirror.join("fdr.wav");
+            let negative = so::Wave::read(negative.to_str().unwrap()).unwrap();
+            assert_eq!(negative.sample_rate(), SAMPLE_RATE);
+            let different = speaker_model.embed(negative.samples()).unwrap().unwrap();
+            let cosine = |other: &[f32]| vector.iter().zip(other).map(|(a, b)| a * b).sum::<f32>();
+            assert!(
+                cosine(&same) > cosine(&different),
+                "same {}, different {}",
+                cosine(&same),
+                cosine(&different)
+            );
+            assert!(
+                !models
+                    .load_diarizer(diarization, speaker)
+                    .unwrap()
+                    .diarize(audio)
+                    .unwrap()
+                    .is_empty()
+            );
+            for (id, dim) in searches {
+                let model =
+                    Model2VecEmbedder::new(models.registry().require(id).unwrap(), &store).unwrap();
+                let inputs = [
+                    "The sales budget was approved.",
+                    "The budget for sales was approved.",
+                    "My cat is sleeping on the sofa.",
+                ]
+                .map(String::from);
+                let mut inputs = inputs;
+                if id == "blink-multilingual-64m-int8" {
+                    inputs[1] = "O orçamento de vendas foi aprovado.".into();
+                }
+                let vectors = model.embed(&inputs).unwrap();
+                assert_eq!(vectors.len(), 3, "{id}");
+                assert!(vectors.iter().all(|vector| vector.len() == dim), "{id}");
+                let similarity = |index: usize| {
+                    vectors[0]
+                        .iter()
+                        .zip(&vectors[index])
+                        .map(|(a, b)| a * b)
+                        .sum::<f32>()
+                };
+                assert!(similarity(1) > similarity(2), "{id}");
+            }
+        }
+
         /// The archive's `en.wav` (24 kHz) at 16 kHz, resampled chunk by chunk
         /// with a flush at the end, as the pipeline does per decoded packet.
         fn en_wav(p: &SherpaProvider) -> Vec<f32> {

@@ -3,6 +3,7 @@
 //! The marker lists every installed file with its size and SHA-256, so
 //! `doctor` can check an install without the (deleted) archives.
 
+use std::fs::{self, File, TryLockError};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -90,6 +91,83 @@ impl ModelStore {
         Ok(self.root.join(format!("{id}.lock")))
     }
 
+    pub(crate) fn open_lock(&self, id: &str) -> Result<File> {
+        let path = self.lock_path(id)?;
+        fs::create_dir_all(&self.root).map_err(|e| Error::io_at(&self.root, e))?;
+        broscribe_platform::open_regular_nofollow(
+            File::options()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false),
+            &path,
+        )
+        .map_err(|e| Error::io_at(&path, e))
+    }
+
+    /// Refuses an install in progress. A missing cache needs no lock and
+    /// must stay untouched even if a download starts after this probe.
+    pub fn lock_for_removal(&self, entry: &ModelEntry) -> Result<Option<ModelLock>> {
+        if !self.clean_model(entry, false)?.0 {
+            return Ok(None);
+        }
+        let id = &entry.id;
+        let path = self.lock_path(id)?;
+        let file = self.open_lock(id)?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(ModelLock(file))),
+            Err(TryLockError::WouldBlock) => Err(Error::Service {
+                code: "model_busy",
+                message: format!(
+                    "Model {id} is being downloaded or removed. Try again when it finishes."
+                ),
+            }),
+            Err(TryLockError::Error(e)) => Err(Error::io_at(&path, e)),
+        }
+    }
+
+    /// Whether this cache contains known downloadable model files.
+    pub fn has_model_files(&self, entry: &ModelEntry) -> bool {
+        self.clean_model(entry, false)
+            .is_ok_and(|(has_files, _)| has_files)
+    }
+
+    /// Removes only files identified by the install, download or registry.
+    /// The caller holds the model and config locks.
+    pub fn remove_model_files(&self, entry: &ModelEntry) -> Result<bool> {
+        self.clean_model(entry, true)
+            .map(|(_, report)| report.changed)
+    }
+
+    fn removable_dir(&self, id: &str) -> Result<PathBuf> {
+        if std::env::consts::OS == "windows" && id.ends_with('.') {
+            return Err(Error::InvalidInput(
+                "Cannot remove a model ID ending in a period on Windows.".into(),
+            ));
+        }
+        self.model_dir(id)
+    }
+
+    fn clean_model(
+        &self,
+        entry: &ModelEntry,
+        apply: bool,
+    ) -> Result<(bool, broscribe_platform::profile_cleanup::Cleanup)> {
+        let dir = self.removable_dir(&entry.id)?;
+        if !require_directory(&self.root)? || !require_directory(&dir)? {
+            return Ok((false, Default::default()));
+        }
+        broscribe_platform::profile_cleanup::clean_model(
+            &dir,
+            entry
+                .files
+                .iter()
+                .filter(|file| !file.archive)
+                .map(|file| file.file_name().to_owned()),
+            apply,
+        )
+    }
+
     /// The folder holding the model's files (the archive root when the model
     /// ships as an archive).
     pub fn content_dir(&self, entry: &ModelEntry) -> Result<PathBuf> {
@@ -168,6 +246,32 @@ impl ModelStore {
             }
         }
         Ok(Health::Installed)
+    }
+}
+
+fn require_directory(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata)
+            if metadata.is_dir() && !broscribe_platform::release_layout::is_reparse(&metadata) =>
+        {
+            Ok(true)
+        }
+        Ok(_) => Err(Error::InvalidInput(format!(
+            "model cache path is not a directory: {}",
+            path.display()
+        ))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(Error::io_at(path, error)),
+    }
+}
+
+/// The per-model lock shared with downloads. Unlock explicitly because a
+/// forked child can keep the open file description alive until its exec.
+pub struct ModelLock(pub(crate) File);
+
+impl Drop for ModelLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
     }
 }
 

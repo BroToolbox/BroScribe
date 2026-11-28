@@ -408,6 +408,32 @@ mod tests {
     }
 
     #[test]
+    fn existing_custom_ids_with_a_trailing_period_still_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut built_in = Registry::builtin()
+            .unwrap()
+            .require("silero-vad")
+            .unwrap()
+            .clone();
+        built_in.id = "custom.".into();
+        #[derive(Serialize)]
+        struct ModelOverride {
+            model: Vec<ModelEntry>,
+        }
+        std::fs::write(
+            dir.path().join(USER_REGISTRY_FILE),
+            toml::to_string(&ModelOverride {
+                model: vec![built_in],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let registry = Registry::load(dir.path()).unwrap();
+        assert!(registry.require("custom.").is_ok());
+        assert!(registry.require("silero-vad").is_ok());
+    }
+
+    #[test]
     fn user_registry_cannot_define_profiles() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -429,6 +455,7 @@ mod tests {
             "pyannote-segmentation-3.0",
             "nemo-titanet-large",
             "nemo-titanet-small",
+            "wespeaker-resnet34-lm",
         ] {
             assert_eq!(r.get(id).map(|m| m.runtime.as_str()), Some("onnx"), "{id}");
         }
@@ -448,7 +475,7 @@ mod tests {
         assert_eq!(pyannote.params["threshold"].as_float(), Some(1.0));
         assert_eq!(pyannote.params["num_threads"].as_integer(), Some(6));
         assert!(!r.get("nemo-titanet-small").unwrap().license_verified);
-        assert_eq!(r.with_role(Role::SpeakerEmbedding).count(), 2);
+        assert_eq!(r.with_role(Role::SpeakerEmbedding).count(), 3);
         assert_eq!(r.require("nope").unwrap_err().code(), "model_missing");
     }
 

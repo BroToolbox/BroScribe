@@ -23,8 +23,8 @@ use broscribe_platform::profile_cleanup::{MODEL_PARTIAL_RECORD, ModelPartialEntr
 use crate::execution::ExecutionContext;
 use crate::registry::{ModelEntry, ModelFile};
 use crate::store::{
-    Health, InstalledFile, ModelStore, PARTIAL_DIR, SourceHash, VERIFIED_MARKER, VerifiedMarker,
-    copy_hashing,
+    Health, InstalledFile, ModelLock, ModelStore, PARTIAL_DIR, SourceHash, VERIFIED_MARKER,
+    VerifiedMarker, copy_hashing,
 };
 
 /// Local folder checked for a file before downloading it.
@@ -164,38 +164,19 @@ const LOCK_POLL: Duration = Duration::from_millis(50);
 /// Waits until this process holds the model's exclusive pull lock, giving up
 /// when `stop` fires; the lock is released when the returned guard is
 /// dropped (or the process exits).
-fn lock_model(store: &ModelStore, id: &str, stop: Stop<'_>) -> Result<PullLock> {
+fn lock_model(store: &ModelStore, id: &str, stop: Stop<'_>) -> Result<ModelLock> {
     let path = store.lock_path(id)?;
-    std::fs::create_dir_all(store.root()).map_err(|e| Error::io_at(store.root(), e))?;
-    let file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .map_err(|e| Error::io_at(&path, e))?;
+    let file = store.open_lock(id)?;
     loop {
         stop.check()
             .map_err(|e| Error::io(format!("waiting for the pull lock of model {id}"), e))?;
         match file.try_lock() {
-            Ok(()) => return Ok(PullLock(file)),
+            Ok(()) => return Ok(ModelLock(file)),
             Err(TryLockError::WouldBlock) => {
                 std::thread::sleep(stop.remaining().min(LOCK_POLL));
             }
             Err(TryLockError::Error(e)) => return Err(Error::io_at(&path, e)),
         }
-    }
-}
-
-/// A held model pull lock. Unlocks explicitly on drop: flock locks belong to
-/// the open file description, and a child forked by another thread holds a
-/// copy of it until its exec closes it (close-on-exec). Closing only this
-/// handle would leave the lock held.
-struct PullLock(File);
-
-impl Drop for PullLock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
     }
 }
 

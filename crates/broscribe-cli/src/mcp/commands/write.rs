@@ -1084,6 +1084,7 @@ impl Server {
                     id: p.id,
                     role: p.role,
                     allow_unverified_license: false,
+                    require_installed: false,
                 },
             },
             None,

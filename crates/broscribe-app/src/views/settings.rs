@@ -17,7 +17,7 @@
 //! render in the standalone Settings window.
 
 use broscribe_core::{fsutil::directory_bytes, ops::enrollment_files};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -980,6 +980,9 @@ pub(crate) struct ModelRow {
     /// Whether the speech model takes term hints (`None`: not reported).
     pub accepts_hotwords: Option<bool>,
     pub download_hosts: Vec<String>,
+    pub languages: Vec<String>,
+    pub has_model_files: bool,
+    pub platform_supported: bool,
 }
 
 impl ModelRow {
@@ -1115,6 +1118,13 @@ pub(crate) fn parse_models_list(v: &Value) -> ModelsList {
                         active_for: strings(&r["active_for"]),
                         accepts_hotwords: r["accepts_hotwords"].as_bool(),
                         download_hosts: strings(&r["download_hosts"]),
+                        languages: strings(&r["languages"]),
+                        has_model_files: r["has_model_files"].as_bool().unwrap_or_else(|| {
+                            r["state"].as_str().is_some_and(|state| {
+                                state == "installed" || state.starts_with("corrupt:")
+                            })
+                        }),
+                        platform_supported: r["platform_supported"].as_bool().unwrap_or(true),
                     })
                 })
                 .collect()
@@ -1525,6 +1535,10 @@ struct ModelsModel {
     /// Cancels of the downloads still running.
     pull_cancels: BTreeMap<String, PullCancel>,
     advanced: bool,
+    details: Option<String>,
+    row_focus: RefCell<BTreeMap<String, FocusHandle>>,
+    removing: Option<String>,
+    removal: Option<(String, (StatusKind, String))>,
     batch: Option<std::collections::VecDeque<String>>,
     batch_status: Option<(StatusKind, String)>,
     outcomes: BTreeMap<(String, String), (StatusKind, String)>,
@@ -1730,6 +1744,12 @@ impl SettingsView {
                     if this.window_page == Some(SettingsPage::Recording) {
                         this.load_permissions(cx);
                     }
+                    if this.window_page == Some(SettingsPage::Transcription)
+                        && !this.models.loading
+                        && !this.model_actions_busy(cx)
+                    {
+                        this.load_models(cx);
+                    }
                     if this.window_page == Some(SettingsPage::Calendars) {
                         this.integrations.update(cx, |view, cx| view.reload(cx));
                     }
@@ -1915,12 +1935,7 @@ impl SettingsView {
         if !notice.error
             && matches!(
                 control,
-                "language"
-                    | "consent-reminder"
-                    | "live-identity"
-                    | "reading-size"
-                    | "summary-mode"
-                    | "speech-model"
+                "language" | "consent-reminder" | "live-identity" | "reading-size" | "summary-mode"
             )
         {
             return None;
@@ -2837,6 +2852,14 @@ impl SettingsView {
 
     // ---- Models ----
 
+    fn model_actions_busy(&self, cx: &App) -> bool {
+        self.models.batch.is_some()
+            || self.models.using.is_some()
+            || self.models.removing.is_some()
+            || self.models.pulls.values().any(PullState::in_progress)
+            || self.state.read(cx).model_downloads().read(cx).running()
+    }
+
     fn load_models(&mut self, cx: &mut Context<Self>) {
         self.models.generation += 1;
         let generation = self.models.generation;
@@ -2919,13 +2942,16 @@ impl SettingsView {
                 let state = PullState::finished(&name, &result);
                 this.models.pulls.insert(id.clone(), state.clone());
                 if state == PullState::Done {
+                    this.models.doctor = None;
                     if let Some(row) = this.models.list.rows.iter_mut().find(|row| row.id == id) {
                         row.state = "installed".into();
+                        row.has_model_files = true;
                     }
                     if let Some(role) = role {
                         this.use_model(role, id.clone(), allow_unverified, cx);
                     }
                 } else if let Some(role) = role {
+                    this.models.using = None;
                     let previous = this
                         .models
                         .list
@@ -2933,12 +2959,13 @@ impl SettingsView {
                         .iter()
                         .find(|row| row.active_for.contains(&role))
                         .map(|row| this.models.list.model_name(&row.id));
-                    if let Some(previous) = previous {
-                        this.models.outcomes.insert(
-                            (role, id.clone()),
-                            (StatusKind::Info, format!("Still using {previous}.")),
-                        );
-                    }
+                    let feedback = previous.map_or_else(
+                        || "The active model stayed the same.".into(),
+                        |previous| format!("Still using {previous}."),
+                    );
+                    this.models
+                        .outcomes
+                        .insert((role, id.clone()), (StatusKind::Info, feedback));
                 }
                 if batch_window.is_some() && state != PullState::Done {
                     this.models.batch = None;
@@ -2985,7 +3012,13 @@ impl SettingsView {
     ) {
         self.models.using = Some((role.clone(), id.clone()));
         cx.notify();
-        let mut a = args(["models", "use", role.as_str(), id.as_str()]);
+        let mut a = args([
+            "models",
+            "use",
+            role.as_str(),
+            id.as_str(),
+            "--require-installed",
+        ]);
         if allow_unverified {
             a.push("--allow-unverified-license".into());
         }
@@ -3014,12 +3047,22 @@ impl SettingsView {
                 }
                 let message = match result {
                     Ok(v) => {
+                        this.models.doctor = None;
                         let mut text = format!(
                             "{name} is now used for {}.",
                             role_label(&role).to_lowercase()
                         );
                         if v["installed"].as_bool() == Some(false) {
                             text.push_str(" It is not downloaded yet.");
+                        }
+                        if v["live_model"]["platform_supported"].as_bool() == Some(false) {
+                            text.push_str(
+                                " Its live transcription model is unavailable on this computer.",
+                            );
+                        } else if v["live_model"]["installed"].as_bool() == Some(false) {
+                            text.push_str(
+                                " Download the live transcription model to use live preview.",
+                            );
                         }
                         if v["thresholds_calibrated"].as_bool() == Some(false) {
                             text.push_str(
@@ -3056,37 +3099,72 @@ impl SettingsView {
         let Some(row) = self.models.list.rows.iter().find(|row| row.id == id) else {
             return;
         };
+        if !from_batch && (!row.platform_supported || self.model_actions_busy(cx)) {
+            return;
+        }
         let installed = row.installed();
         let verified = row.license_verified;
         let name = self.models.list.model_name(&id);
         let license = row.license.clone();
         let handle = from_batch.then(|| window.window_handle());
-        if verified {
+        let speaker = role.as_deref() == Some("speaker_embedding");
+        if verified && !speaker {
             self.start_model_action(id, role, installed, false, handle, cx);
             return;
         }
-        let mut spec = kit::ConfirmSpec::new(
-            kit::confirm_line("license-title", "Use a model with an unverified licence?"),
-            "license-confirm",
-            "license-actions",
-            "license-cancel",
-            kit::confirm_line(
-                "license-accept",
-                if role.is_some() && installed {
-                    "Use anyway"
-                } else {
-                    "Download anyway"
-                },
-            ),
-        );
+        let mut spec = if speaker {
+            kit::ConfirmSpec::new(
+                kit::confirm_line("speaker-switch-title", format!("Switch to {name}?")),
+                "speaker-switch-confirm",
+                "speaker-switch-actions",
+                "speaker-switch-cancel",
+                kit::confirm_line(
+                    "speaker-switch-accept",
+                    if installed {
+                        "Switch model"
+                    } else {
+                        "Download and switch"
+                    },
+                ),
+            )
+        } else {
+            kit::ConfirmSpec::new(
+                kit::confirm_line("license-title", "Use a model with an unverified licence?"),
+                "license-confirm",
+                "license-actions",
+                "license-cancel",
+                kit::confirm_line(
+                    "license-accept",
+                    if role.is_some() && installed {
+                        "Use anyway"
+                    } else {
+                        "Download anyway"
+                    },
+                ),
+            )
+        };
         spec.primary_action = true;
         spec.irreversible = false;
-        spec.caveat = Some(kit::confirm_line(
-            "license-confirm-question",
-            format!(
-                "BroScribe hasn’t verified the licence of {name} ({license}). Check its terms before you use it."
-            ),
-        ));
+        if speaker {
+            let config = self.state.read(cx).config();
+            let mut effect = String::from(
+                "BroScribe reanalyses saved speakers and voiceprints where audio is available.",
+            );
+            if config.thresholds(&id).is_none() {
+                effect.push_str(
+                    " Until the model is calibrated, BroScribe only suggests speaker names.",
+                );
+            }
+            spec.warning = Some(kit::confirm_line("speaker-switch-effect", effect));
+        }
+        if !verified {
+            spec.caveat = Some(kit::confirm_line(
+                "license-confirm-question",
+                format!(
+                    "BroScribe hasn’t verified the licence of {name} ({license}). Check its terms before you use it."
+                ),
+            ));
+        }
         let cancel = cx.weak_entity();
         let accept = cancel.clone();
         kit::confirm_dialog(
@@ -3109,7 +3187,14 @@ impl SettingsView {
             },
             move |_, cx| {
                 let _ = accept.update(cx, |this, cx| {
-                    this.start_model_action(id.clone(), role.clone(), installed, true, handle, cx)
+                    this.start_model_action(
+                        id.clone(),
+                        role.clone(),
+                        installed,
+                        !verified,
+                        handle,
+                        cx,
+                    )
                 });
                 true
             },
@@ -3125,6 +3210,21 @@ impl SettingsView {
         batch_window: Option<gpui::AnyWindowHandle>,
         cx: &mut Context<Self>,
     ) {
+        if batch_window.is_none() && self.model_actions_busy(cx) {
+            return;
+        }
+        if let Some(role) = &role {
+            self.models.outcomes.retain(|(saved, _), _| saved != role);
+            self.models.using = Some((role.clone(), id.clone()));
+        }
+        if self
+            .models
+            .removal
+            .as_ref()
+            .is_some_and(|(removed, _)| removed == &id)
+        {
+            self.models.removal = None;
+        }
         if installed && let Some(role) = role {
             self.use_model(role, id, unverified, cx);
         } else {
@@ -3146,27 +3246,90 @@ impl SettingsView {
         }
     }
 
-    fn select_profile(&mut self, id: String, cx: &mut Context<Self>) {
-        if !self.begin_save("speech-model", cx) {
+    fn confirm_model_removal(
+        &mut self,
+        id: String,
+        opener: FocusHandle,
+        details_focus: FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = self.models.list.model_name(&id);
+        let mut spec = kit::ConfirmSpec::new(
+            kit::confirm_line("remove-model-title", format!("Delete {name}?")),
+            "remove-model-confirm",
+            "remove-model-actions",
+            "remove-model-cancel",
+            kit::confirm_line("remove-model-accept", "Delete model"),
+        );
+        spec.irreversible = false;
+        spec.success_focus = Some(details_focus);
+        spec.caveat = Some(kit::confirm_line(
+            "remove-model-caveat",
+            "Deletes the downloaded files. You can download this model again.",
+        ));
+        let settings = cx.weak_entity();
+        kit::confirm_dialog(
+            opener,
+            window,
+            cx,
+            move |_| Some(spec.clone()),
+            |_, _| true,
+            move |_, cx| {
+                let _ = settings.update(cx, |this, cx| this.remove_model(id.clone(), cx));
+                true
+            },
+        );
+    }
+
+    fn remove_model(&mut self, id: String, cx: &mut Context<Self>) {
+        if self.model_actions_busy(cx) {
+            self.models.removal = Some((
+                id,
+                (
+                    StatusKind::Info,
+                    "Wait for the current model action to finish.".into(),
+                ),
+            ));
+            cx.notify();
             return;
         }
+        self.models.removing = Some(id.clone());
+        self.models.removal = None;
+        let name = self.models.list.model_name(&id);
         let task = self.state.read(cx).run_cli(
-            args(["setup", "--non-interactive", "--profile", &id]),
+            args(["models", "remove", "--yes", "--", &id]),
             ChildKind::Command,
             cx,
         );
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.saving.remove("speech-model");
-                this.report_setting(
-                    "speech-model",
-                    result.map(|_| "Speech model changed.".into()).map_err(|e| {
-                        failure_text("Couldn’t change the speech model.", &e.user_text(), "")
-                    }),
-                    cx,
-                );
-                reload_config(&this.state, cx).detach();
+                this.models.removing = None;
+                let message = match result {
+                    Ok(value) => {
+                        if let Some(row) = this.models.list.rows.iter_mut().find(|row| row.id == id)
+                        {
+                            row.state = "missing".into();
+                            row.has_model_files = false;
+                        }
+                        this.models.pulls.remove(&id);
+                        this.models.outcomes.retain(|(_, saved), _| saved != &id);
+                        this.models.doctor = None;
+                        if value["removed"].as_bool() == Some(true) {
+                            Ok(format!("Deleted the downloaded files for {name}."))
+                        } else {
+                            Ok(format!("No downloaded files for {name} were found."))
+                        }
+                    }
+                    Err(error) => Err(failure_text(
+                        &format!("Couldn’t delete {name}."),
+                        &error.user_text(),
+                        "",
+                    )),
+                };
+                this.models.removal = Some((id, outcome(message)));
                 this.load_models(cx);
             });
         })
@@ -3174,6 +3337,10 @@ impl SettingsView {
     }
 
     fn run_doctor(&mut self, cx: &mut Context<Self>) {
+        if self.models.doctor_running || self.model_actions_busy(cx) {
+            return;
+        }
+        let generation = self.models.generation;
         self.models.doctor_running = true;
         cx.notify();
         let task = self
@@ -3183,13 +3350,24 @@ impl SettingsView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                this.models.doctor_running = false;
-                this.models.doctor = Some(result.map_err(|e| e.user_text()));
-                cx.notify();
+                this.finish_model_check(generation, result.map_err(|e| e.user_text()), cx);
             })
             .ok();
         })
         .detach();
+    }
+
+    fn finish_model_check(
+        &mut self,
+        generation: u64,
+        result: std::result::Result<Value, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.models.doctor_running = false;
+        if self.models.generation == generation {
+            self.models.doctor = Some(result);
+        }
+        cx.notify();
     }
 
     // ---- Privacy ----
@@ -3973,9 +4151,7 @@ impl SettingsView {
         let m = &self.models;
         let missing = m.list.missing_profile_models();
         let setup_downloads = self.state.read(cx).model_downloads().read(cx);
-        let running = setup_downloads.running()
-            || m.batch.is_some()
-            || m.pulls.values().any(PullState::in_progress);
+        let running = self.model_actions_busy(cx);
         kit::stack()
             .w_full()
             .when_some(setup_downloads.percent(), |group, percent| {
@@ -4000,16 +4176,10 @@ impl SettingsView {
                     .child(
                         Button::new("transcription-download-all")
                             .label("Download all")
-                            .map(|button| {
-                                kit::primary(
-                                    button,
-                                    m.loading || running || self.saving.contains("speech-model"),
-                                    cx,
-                                )
-                            })
+                            .map(|button| kit::primary(button, m.loading || running, cx))
                             .self_start()
                             .track_focus(&self.download_all_focus)
-                            .disabled(m.loading || running || self.saving.contains("speech-model"))
+                            .disabled(m.loading || running)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let ids = this
                                     .models
@@ -4083,23 +4253,11 @@ impl SettingsView {
                     cx,
                 ))
             })
-            .child(kit::field_heading(
+            .child(self.render_local_model_picker(
                 "settings-speech-models",
                 "Speech model",
-                None,
-                |_| {
-                    speech_model_choices(
-                        "settings-speech-options",
-                        &m.list,
-                        self.state.read(cx).config().default_language.as_deref(),
-                        self.saving.contains("speech-model")
-                            || running
-                            || m.loading
-                            || m.using.is_some(),
-                        cx,
-                        Self::select_profile,
-                    )
-                },
+                "asr",
+                &self.state.read(cx).config().profile.asr.clone(),
                 cx,
             ))
             .when_some(m.error.as_ref(), |group, cause| {
@@ -4118,15 +4276,201 @@ impl SettingsView {
                     cx,
                 ))
             })
-            .children(self.setting_notice("speech-model", cx))
     }
 
-    fn render_advanced_models(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn local_model_option(
+        &self,
+        model: &ModelRow,
+        role: &str,
+        language: Option<&str>,
+    ) -> crate::ui::select::OptionItem {
+        let mut details = Vec::new();
+        if role == "text_embedding" {
+            details.push("On this computer".to_owned());
+        }
+        let languages = &model.languages;
+        if languages.iter().any(|language| language == "*") {
+            details.push("Multilingual".into());
+        } else if let [language] = languages.as_slice() {
+            details.push(crate::ui::format::language_name(language).to_owned());
+        } else if !languages.is_empty() {
+            details.push(format!("{} languages", languages.len()));
+        }
+        if let Some(language) = language.filter(|_| !languages.is_empty()) {
+            let base = language.split('-').next().unwrap_or(language);
+            if !languages.iter().any(|listed| {
+                listed == "*"
+                    || listed.eq_ignore_ascii_case(language)
+                    || listed.eq_ignore_ascii_case(base)
+            }) {
+                details.push(format!(
+                    "Doesn’t list {}",
+                    crate::ui::format::language_name(language)
+                ));
+            }
+        }
+        details.push(bytes(model.bytes));
+        details.push(model.state_label().into());
+        let mut option =
+            crate::ui::select::OptionItem::new(&model.id, self.models.list.model_name(&model.id))
+                .detail(Some(details.join(" · ")));
+        option.disabled = !model.platform_supported;
+        option
+    }
+
+    fn model_picker_fallback(&self, active: &str) -> crate::ui::select::OptionItem {
+        let label = if self.models.loading && !self.models.loaded {
+            "Loading…"
+        } else if active.is_empty() {
+            "No model selected"
+        } else {
+            active
+        };
+        let mut current = crate::ui::select::OptionItem::new(active, label.to_owned());
+        current.disabled = true;
+        current
+    }
+
+    fn render_local_model_picker(
+        &self,
+        id: &'static str,
+        title: &'static str,
+        role: &'static str,
+        active: &str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let config = self.state.read(cx).config();
+        let language = (role == "asr")
+            .then_some(config.default_language.as_deref())
+            .flatten();
+        let mut options: Vec<_> = self
+            .models
+            .list
+            .rows
+            .iter()
+            .filter(|model| model.roles.iter().any(|name| name == role))
+            .map(|model| self.local_model_option(model, role, language))
+            .collect();
+        if !options.iter().any(|option| option.value == active) {
+            options.push(self.model_picker_fallback(active));
+        }
+        let focus = Rc::new(RefCell::new(None));
+        let capture = focus.clone();
+        let disabled = self.models.loading || self.model_actions_busy(cx);
+        kit::stack()
+            .w_full()
+            .child(kit::field_row(
+                id,
+                title,
+                None,
+                self.use_vertical_fields(cx),
+                |label| {
+                    crate::ui::select::Picker::new(
+                        format!("{id}-picker"),
+                        label,
+                        options,
+                        active,
+                        cx,
+                        move |this, choice, window, cx| {
+                            let profile = &this.state.read(cx).config().profile;
+                            let active = if role == "asr" {
+                                &profile.asr
+                            } else {
+                                &profile.speaker_embedding
+                            };
+                            if choice != active
+                                && let Some(opener) = focus.borrow().clone()
+                            {
+                                this.request_model(
+                                    choice.into(),
+                                    Some(role.into()),
+                                    false,
+                                    opener,
+                                    window,
+                                    cx,
+                                );
+                            }
+                        },
+                    )
+                    .track_control_focus(capture)
+                    .disabled(disabled)
+                },
+                cx,
+            ))
+            .children(self.render_model_switch(role, cx))
+    }
+
+    fn render_model_switch(&self, role: &str, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let pending = self
+            .models
+            .using
+            .as_ref()
+            .filter(|(target, _)| target == role);
+        if pending.is_none()
+            && !self
+                .models
+                .outcomes
+                .keys()
+                .any(|(target, _)| target == role)
+        {
+            return None;
+        }
+        let mut group = kit::stack().w_full().gap_1();
+        if let Some((_, id)) = pending {
+            let name = self.models.list.model_name(id);
+            let pull = self.models.pulls.get(id);
+            let words = match pull {
+                Some(PullState::Running(Some(pct))) => {
+                    format!("Downloading {name} · {}", crate::ui::format::percent(*pct))
+                }
+                Some(PullState::Running(None)) => format!("Downloading {name}…"),
+                Some(PullState::Cancelling) => "Cancelling the download…".into(),
+                _ => format!("Switching to {name}…"),
+            };
+            group = group.child(kit::status_line(
+                format!("{role}-model-switching"),
+                StatusKind::Pending,
+                words,
+                cx,
+            ));
+            if matches!(pull, Some(PullState::Running(_))) {
+                let id = id.clone();
+                group = group.child(
+                    Button::new(format!("{role}-model-switch-cancel"))
+                        .label("Cancel")
+                        .small()
+                        .on_click(cx.listener(move |this, _, _, cx| this.cancel_pull(&id, cx))),
+                );
+            }
+        }
+        for ((target, id), (kind, words)) in &self.models.outcomes {
+            if target != role {
+                continue;
+            }
+            if let Some(PullState::Failed(error)) = self.models.pulls.get(id) {
+                group = group.child(kit::status_line(
+                    format!("{role}-model-failure-{id}"),
+                    StatusKind::Failed,
+                    error.clone(),
+                    cx,
+                ));
+            }
+            group = group.child(kit::status_line(
+                format!("{role}-model-result-{id}"),
+                *kind,
+                words.clone(),
+                cx,
+            ));
+        }
+        Some(group)
+    }
+
+    fn render_advanced_models(&self, cx: &mut Context<Self>) -> impl IntoElement {
         kit::stack()
             .w_full()
             .child(kit::disclosure(
                 "settings-models-advanced",
-                "All models (advanced)",
+                "All models",
                 self.models.advanced,
                 cx,
                 |this, _, cx| {
@@ -4135,15 +4479,11 @@ impl SettingsView {
                 },
             ))
             .when(self.models.advanced, |group| {
-                group.child(self.render_models(
-                    window.viewport_size().width - gpui::rems(12.).to_pixels(window.rem_size())
-                        < px(520.),
-                    cx,
-                ))
+                group.child(self.render_models(cx))
             })
     }
 
-    fn render_models(&self, narrow: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_models(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let m = &self.models;
         let mut roles: Vec<String> = MODEL_ROLES.iter().map(|r| (*r).to_owned()).collect();
         for r in m.list.rows.iter().flat_map(|r| r.roles.iter()) {
@@ -4151,14 +4491,14 @@ impl SettingsView {
                 roles.push(r.clone());
             }
         }
-        let mut el = div()
-            .flex()
-            .flex_col()
+        let mut el = kit::stack()
+            .w_full()
+            .min_w_0()
             .gap_2()
-            .child(heading("settings-models", "Models").mt_3())
+            .debug_selector(|| "model-catalog".to_owned())
             .child(muted(
                 "settings-models-note",
-                "Models run on this computer. Each download is checked against a published checksum.",
+                "Models run locally. Downloads are verified.",
                 cx,
             ));
         if let Some(e) = &m.error {
@@ -4186,16 +4526,24 @@ impl SettingsView {
             if rows.is_empty() {
                 continue;
             }
-            el = el.child(
-                crate::ui::subheading(
-                    SharedString::from(format!("settings-models-role-{role}")),
-                    role_label(&role),
-                )
-                .mt_2(),
-            );
-            for r in rows {
-                el = el.child(self.model_row(r, &role, narrow, cx));
+            let mut group =
+                kit::stack()
+                    .w_full()
+                    .min_w_0()
+                    .gap_1()
+                    .mt_2()
+                    .child(crate::ui::subheading(
+                        SharedString::from(format!("settings-models-role-{role}")),
+                        role_label(&role),
+                    ));
+            for (index, model) in rows.into_iter().enumerate() {
+                if index > 0 {
+                    group =
+                        group.child(div().w_full().border_t_1().border_color(cx.theme().border));
+                }
+                group = group.child(self.model_row(model, &role, cx));
             }
+            el = el.child(group);
         }
         el = el.child(
             row().mt_2().child(
@@ -4208,8 +4556,12 @@ impl SettingsView {
                     .map(|button| {
                         crate::ui::kit::disable_with_reason(
                             button,
-                            m.doctor_running,
-                            "BroScribe is checking the installed models.",
+                            m.doctor_running || self.model_actions_busy(cx),
+                            if m.doctor_running {
+                                "BroScribe is checking the installed models."
+                            } else {
+                                "Wait for the current model action to finish."
+                            },
                             cx,
                         )
                     })
@@ -4263,21 +4615,26 @@ impl SettingsView {
         el
     }
 
-    fn model_row(
-        &self,
-        r: &ModelRow,
-        role: &str,
-        narrow: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn model_row_focus(&self, key: String, cx: &App) -> FocusHandle {
+        self.models
+            .row_focus
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| cx.focus_handle())
+            .clone()
+    }
+
+    fn model_row(&self, r: &ModelRow, role: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let active = r.active_for.iter().any(|a| a == role);
         let name = self.models.list.model_name(&r.id);
         let pull = self.models.pulls.get(&r.id);
         let running = pull.is_some_and(PullState::in_progress);
         let key = format!("model-{role}-{}", r.id);
-        let size = bytes(r.bytes);
-        let mut state = kit::stack().w(px(160.)).flex_none();
-        let mut actions = div().flex().items_center().flex_none().gap_1();
+        let busy = self.models.loading || self.model_actions_busy(cx);
+        let details = self.models.details.as_ref() == Some(&key);
+        let mut state = row().min_w_0().max_w_full().gap_1();
+        let mut actions = row().min_w_0().max_w_full().gap_1();
+        let details_focus = self.model_row_focus(format!("{key}-details"), cx);
         if let Some(PullState::Running(pct)) = pull {
             if let Some(pct) = pct {
                 let pct_text = crate::ui::format::percent(*pct);
@@ -4288,7 +4645,7 @@ impl SettingsView {
                             format!("Downloading {name}: {pct_text}"),
                             f32::from(*pct) / 100.,
                         )
-                        .max_w(px(112.)),
+                        .max_w(gpui::rems(5.)),
                     )
                     .child(muted(format!("{key}-percent"), pct_text, cx));
             } else {
@@ -4313,9 +4670,31 @@ impl SettingsView {
                 "Cancelling the download…",
                 cx,
             ));
+        } else if self.models.removing.as_ref() == Some(&r.id) {
+            state = state.child(kit::status_line(
+                format!("{key}-state"),
+                StatusKind::Pending,
+                "Deleting…",
+                cx,
+            ));
         } else {
-            state = state.child(muted(format!("{key}-state"), r.state_label(), cx));
-            if !r.installed() || (!active && role_usable(role)) {
+            if active {
+                state = state.child(
+                    text_line(format!("{key}-active"), Role::Label, "In use")
+                        .text_role(TextRole::Caption),
+                );
+            }
+            let label = if !r.platform_supported {
+                "Unavailable on this computer"
+            } else if r.state == "missing" && r.has_model_files {
+                "Incomplete download"
+            } else {
+                r.state_label()
+            };
+            if !(active && r.installed() && r.platform_supported) {
+                state = state.child(muted(format!("{key}-state"), label, cx));
+            }
+            if r.platform_supported && (!r.installed() || (!active && role_usable(role))) {
                 let id = r.id.clone();
                 let use_for = (!active && role_usable(role)).then(|| role.to_owned());
                 let action = match (
@@ -4328,16 +4707,21 @@ impl SettingsView {
                     (false, false, true) => "Download again",
                     _ => "Download",
                 };
-                let opener = cx.focus_handle();
-                let disabled = self.models.batch.is_some()
-                    || (use_for.is_some()
-                        && (self.models.using.is_some() || self.saving.contains("speech-model")));
+                let opener = self.model_row_focus(format!("{key}-use"), cx);
                 actions = actions.child(
                     Button::new(format!("{key}-action"))
                         .small()
                         .label(action)
+                        .accessibility_label(format!("{action} {name}"))
                         .track_focus(&opener)
-                        .disabled(disabled)
+                        .map(|button| {
+                            kit::disable_with_reason(
+                                button,
+                                busy,
+                                "Wait for the current model action to finish.",
+                                cx,
+                            )
+                        })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.request_model(
                                 id.clone(),
@@ -4350,77 +4734,157 @@ impl SettingsView {
                         })),
                 );
             }
+            if r.has_model_files && r.active_for.is_empty() {
+                let id = r.id.clone();
+                let opener = self.model_row_focus(format!("{key}-delete"), cx);
+                let success = details_focus.clone();
+                actions = actions.child(
+                    Button::new(format!("{key}-remove"))
+                        .ghost()
+                        .small()
+                        .label("Delete")
+                        .accessibility_label(format!("Delete {name}"))
+                        .track_focus(&opener)
+                        .map(|button| {
+                            kit::disable_with_reason(
+                                button,
+                                busy,
+                                "Wait for the current model action to finish.",
+                                cx,
+                            )
+                        })
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.confirm_model_removal(
+                                id.clone(),
+                                opener.clone(),
+                                success.clone(),
+                                window,
+                                cx,
+                            );
+                        })),
+                );
+            }
         }
-        if narrow {
-            state = state.child(muted(format!("{key}-size"), size.clone(), cx));
-        }
-        let license = if r.license_verified {
-            muted(
-                format!("{key}-licence"),
-                format!("{} licence", r.license),
-                cx,
-            )
-        } else {
-            kit::status_line(
-                format!("{key}-licence"),
-                StatusKind::Attention,
-                format!("Licence not verified: {}", r.license),
-                cx,
-            )
-        };
-        let description = kit::stack()
-            .flex_1()
+
+        let detail_key = key.clone();
+        actions = actions.child(
+            Button::new(format!("{key}-details"))
+                .ghost()
+                .small()
+                .icon(gpui::assets::IconName::Info)
+                .aria_expanded(details)
+                .track_focus(&details_focus)
+                .tooltip(if details {
+                    "Hide model details"
+                } else {
+                    "Show model details"
+                })
+                .accessibility_label(format!(
+                    "{} details for {name}",
+                    if details { "Hide" } else { "Show" }
+                ))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.models.details = (!details).then(|| detail_key.clone());
+                    cx.notify();
+                })),
+        );
+
+        let identity = div()
+            .flex_grow_1()
+            .flex_shrink_1()
+            .flex_basis(gpui::rems(9.))
             .min_w_0()
-            .child(text_line(format!("{key}-name"), Role::Label, name.clone()).truncate())
+            .max_w_full()
+            .overflow_hidden()
             .child(
-                muted(format!("{key}-id"), r.id.clone(), cx)
-                    .font_family("monospace")
-                    .truncate(),
+                text_line(format!("{key}-name"), Role::Label, name.clone())
+                    .text_role(TextRole::Label)
+                    .tooltip(kit::title_tooltip(name)),
             )
-            .when(!r.download_hosts.is_empty(), |description| {
-                description.child(muted(
-                    format!("{key}-host"),
-                    format!("Download host: {}", r.download_hosts.join(", ")),
+            .when(!r.license_verified, |element| {
+                element.child(muted(
+                    format!("{key}-unverified"),
+                    "Licence not verified",
                     cx,
                 ))
-            })
-            .child(license)
-            .when(active, |el| {
-                el.child(kit::badge(kit::BadgeTone::Neutral, "In use", cx))
             });
+        let row_id = format!("{key}-row");
+        let row = kit::list_row(row_id.clone(), false, false, cx)
+            .debug_selector(move || row_id)
+            .min_w_0()
+            .flex_wrap()
+            .items_center()
+            .gap_x_3()
+            .gap_y_1()
+            .py_1()
+            .child(identity)
+            .child(state.child(muted(
+                format!("model-{role}-{}-size", r.id),
+                bytes(r.bytes),
+                cx,
+            )))
+            .child(actions);
         kit::stack()
-            .child(
-                kit::list_row(format!("{key}-row"), false, false, cx)
-                    .items_center()
-                    .tooltip(kit::title_tooltip(name))
-                    .child(description)
-                    .when(!narrow, |row| {
-                        row.child(
-                            muted(format!("{key}-size"), size, cx)
-                                .w(px(72.))
-                                .flex_none()
-                                .text_right(),
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .child(row)
+            .when(details, |el| {
+                let mut info = kit::stack().w_full().min_w_0().gap_1().px_2().pb_1().child(
+                    muted(format!("{key}-id"), r.id.clone(), cx)
+                        .w_full()
+                        .min_w_0()
+                        .text_role(TextRole::Mono)
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .truncate(),
+                );
+                if !r.download_hosts.is_empty() {
+                    info = info.child(
+                        muted(
+                            format!("{key}-host"),
+                            format!("Source · {}", r.download_hosts.join(", ")),
+                            cx,
                         )
-                    })
-                    .child(state)
-                    .child(kit::row_trailing(actions).min_w(px(124.))),
-            )
+                        .w_full()
+                        .min_w_0()
+                        .overflow_hidden(),
+                    );
+                }
+                if !r.license.is_empty() {
+                    info = info.child(
+                        muted(
+                            format!("{key}-licence"),
+                            format!("Licence · {}", r.license),
+                            cx,
+                        )
+                        .w_full()
+                        .min_w_0()
+                        .overflow_hidden(),
+                    );
+                }
+                if !r.languages.is_empty() && !r.languages.iter().any(|lang| lang == "*") {
+                    let languages = r
+                        .languages
+                        .iter()
+                        .map(|lang| crate::ui::format::language_name(lang))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    info = info.child(muted(format!("{key}-languages"), languages, cx).w_full());
+                }
+                el.child(info)
+            })
             .when_some(
                 match pull {
                     Some(PullState::Failed(e)) => Some((StatusKind::Failed, e.clone())),
-                    Some(PullState::Cancelled) => Some((
-                        StatusKind::Done,
-                        "Download cancelled; nothing new was installed.".into(),
-                    )),
+                    Some(PullState::Cancelled) => {
+                        Some((StatusKind::Done, "Download cancelled.".into()))
+                    }
                     _ => None,
                 },
-                |el, (kind, text)| {
-                    el.child(kit::status_line(
-                        format!("{key}-pull-result"),
-                        kind,
-                        text,
-                        cx,
-                    ))
+                |el, (kind, words)| {
+                    el.child(
+                        kit::status_line(format!("{key}-pull-result"), kind, words, cx).w_full(),
+                    )
                 },
             )
             .when(!running, |el| {
@@ -4428,17 +4892,31 @@ impl SettingsView {
                     self.models
                         .outcomes
                         .get(&(role.to_owned(), r.id.clone()))
-                        .map(|(kind, text)| {
-                            kit::status_line(format!("{key}-use-result"), *kind, text.clone(), cx)
+                        .map(|(kind, words)| {
+                            kit::status_line(format!("{key}-use-result"), *kind, words.clone(), cx)
+                                .w_full()
                         }),
                 )
             })
+            .when_some(
+                self.models.removal.as_ref().filter(|(id, _)| id == &r.id),
+                |el, (_, (kind, words))| {
+                    el.child(
+                        kit::status_line(format!("{key}-remove-result"), *kind, words.clone(), cx)
+                            .w_full(),
+                    )
+                },
+            )
     }
 
     fn render_your_voice(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let e = &self.enrollment;
         let bytes: u64 = e.files.iter().map(|(_, b)| b).sum();
-        let mut el = kit::stack()
+        let mut el = kit::stack().w_full()
+            .child(self.render_local_model_picker(
+                "settings-speaker-model", "Speaker recognition model", "speaker_embedding",
+                &self.state.read(cx).config().profile.speaker_embedding.clone(), cx,
+            ))
             .child(heading("settings-enrollment-heading", "Your voice reading").mt_2())
             .child(muted(
                 "settings-enrollment-note",
@@ -4661,15 +5139,7 @@ impl SettingsView {
             .collect();
         let mut options: Vec<_> = local
             .iter()
-            .map(|row| {
-                OptionItem::new(
-                    &row.id,
-                    format!(
-                        "On this computer ({})",
-                        self.models.list.model_name(&row.id)
-                    ),
-                )
-            })
+            .map(|row| self.local_model_option(row, "text_embedding", None))
             .collect();
         options.extend(
             providers
@@ -4681,10 +5151,19 @@ impl SettingsView {
                             .is_some_and(|provider| provider.is_consented())
                         && super::providers::http_configured(config.provider(&row.id))
                 })
-                .map(|row| OptionItem::new(&row.id, row.name.clone())),
+                .map(|row| {
+                    OptionItem::new(&row.id, row.name.clone())
+                        .detail(Some("Server · sends transcript text".into()))
+                }),
         );
         let local_active = local.into_iter().find(|row| row.id == active);
         let remote_active = local_active.is_none() && options.iter().any(|row| row.value == active);
+        if !options.iter().any(|option| option.value == active) {
+            options.push(self.model_picker_fallback(active));
+        }
+        let focus = Rc::new(RefCell::new(None));
+        let capture = focus.clone();
+        let download_focus = focus.clone();
         kit::stack()
             .w_full()
             .child(heading("settings-search-model", "Search"))
@@ -4703,23 +5182,30 @@ impl SettingsView {
                         options,
                         active,
                         cx,
-                        |this, id, window, cx| {
-                            let local = this.models.list.rows.iter().any(|row| row.id == id);
-                            if local {
-                                this.request_model(
-                                    id.into(),
-                                    Some("text_embedding".into()),
-                                    false,
-                                    this.search_model_focus.clone(),
-                                    window,
-                                    cx,
-                                );
-                            } else {
+                        move |this, id, window, cx| {
+                            let selected =
+                                id == this.state.read(cx).config().profile.text_embedding;
+                            let local = this.models.list.rows.iter().find(|row| row.id == id);
+                            if let Some(row) = local {
+                                if (!selected || !row.installed())
+                                    && let Some(opener) = focus.borrow().clone()
+                                {
+                                    this.request_model(
+                                        id.into(),
+                                        Some("text_embedding".into()),
+                                        false,
+                                        opener,
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            } else if !selected && !this.model_actions_busy(cx) {
                                 this.use_model("text_embedding".into(), id.into(), false, cx);
                             }
                         },
                     )
-                    .disabled(self.models.using.is_some() || self.models.batch.is_some())
+                    .track_control_focus(capture)
+                    .disabled(self.models.loading || self.model_actions_busy(cx))
                 },
                 cx,
             ))
@@ -4730,52 +5216,73 @@ impl SettingsView {
                     cx,
                 ))
             })
-            .when_some(local_active.filter(|row| !row.installed()), |group, row| {
-                let id = row.id.clone();
-                let name = self.models.list.model_name(&id);
-                let downloading = self
-                    .models
-                    .pulls
-                    .get(&id)
-                    .is_some_and(PullState::in_progress);
-                let cancel = id.clone();
-                group
-                    .child(kit::status_line(
-                        "search-model-download-needed",
-                        StatusKind::Attention,
-                        format!("Search by meaning needs {name} ({}).", bytes(row.bytes)),
-                        cx,
-                    ))
-                    .child(
-                        Button::new("search-model-download")
-                            .label(if downloading { "Cancel" } else { "Download" })
-                            .map(|button| kit::primary(button, self.models.batch.is_some(), cx))
-                            .track_focus(&self.search_model_focus)
-                            .disabled(self.models.batch.is_some())
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if downloading {
-                                    this.cancel_pull(&cancel, cx);
-                                } else {
-                                    this.request_model(
-                                        id.clone(),
-                                        Some("text_embedding".into()),
-                                        false,
-                                        this.search_model_focus.clone(),
-                                        window,
+            .when_some(
+                local_active.filter(|row| {
+                    row.platform_supported
+                        && !row.installed()
+                        && !self
+                            .models
+                            .using
+                            .as_ref()
+                            .is_some_and(|(role, id)| role == "text_embedding" && id == &row.id)
+                }),
+                |group, row| {
+                    let id = row.id.clone();
+                    let name = self.models.list.model_name(&id);
+                    let downloading = self
+                        .models
+                        .pulls
+                        .get(&id)
+                        .is_some_and(PullState::in_progress);
+                    let cancel = id.clone();
+                    group
+                        .child(kit::status_line(
+                            "search-model-download-needed",
+                            StatusKind::Attention,
+                            format!("Search by meaning needs {name} ({}).", bytes(row.bytes)),
+                            cx,
+                        ))
+                        .child(
+                            Button::new("search-model-download")
+                                .label(if downloading { "Cancel" } else { "Download" })
+                                .map(|button| {
+                                    kit::primary(
+                                        button,
+                                        self.model_actions_busy(cx) && !downloading,
                                         cx,
-                                    );
-                                }
-                            })),
-                    )
-            })
+                                    )
+                                })
+                                .track_focus(&self.search_model_focus)
+                                .disabled(self.model_actions_busy(cx) && !downloading)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if downloading {
+                                        this.cancel_pull(&cancel, cx);
+                                    } else {
+                                        let opener = download_focus
+                                            .borrow()
+                                            .clone()
+                                            .unwrap_or_else(|| this.search_model_focus.clone());
+                                        opener.focus(window, cx);
+                                        this.request_model(
+                                            id.clone(),
+                                            Some("text_embedding".into()),
+                                            false,
+                                            opener,
+                                            window,
+                                            cx,
+                                        );
+                                    }
+                                })),
+                        )
+                },
+            )
             .when(
-                self.models
-                    .using
-                    .as_ref()
-                    .is_some_and(|(role, _)| role == "text_embedding")
-                    || self.state.read(cx).jobs().active.iter().any(|job| {
-                        job.kind.as_deref() == Some(broscribe_core::queue::VECTORS_KIND)
-                    }),
+                self.state
+                    .read(cx)
+                    .jobs()
+                    .active
+                    .iter()
+                    .any(|job| job.kind.as_deref() == Some(broscribe_core::queue::VECTORS_KIND)),
                 |group| {
                     group.child(kit::status_line(
                         "search-model-pending",
@@ -4785,20 +5292,7 @@ impl SettingsView {
                     ))
                 },
             )
-            .children(
-                self.models
-                    .outcomes
-                    .iter()
-                    .filter(|((role, _), _)| role == "text_embedding")
-                    .map(|((_, id), (kind, words))| {
-                        kit::status_line(
-                            format!("search-model-result-{id}"),
-                            *kind,
-                            words.clone(),
-                            cx,
-                        )
-                    }),
-            )
+            .children(self.render_model_switch("text_embedding", cx))
     }
 
     fn render_status_item(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -5416,7 +5910,7 @@ pub(crate) fn speech_model_choices<V: 'static>(
 }
 
 fn role_usable(role: &str) -> bool {
-    MODEL_ROLES.contains(&role)
+    MODEL_ROLES.contains(&role) || role == "text_embedding"
 }
 
 pub(super) fn parse_input_devices(v: &Value) -> Vec<InputDevice> {
@@ -5663,7 +6157,7 @@ impl SettingsView {
                 .child(group(cx).child(self.render_speaker_grouping(cx)))
                 .child(group(cx).child(self.render_word_list(cx)))
                 .child(group(cx).child(self.render_search_model(cx)))
-                .child(group(cx).child(self.render_advanced_models(window, cx))),
+                .child(group(cx).child(self.render_advanced_models(cx))),
             SettingsPage::Storage => {
                 let config = self.state.read(cx).config().clone();
                 let handling_status = self.setting_notice("import-handling", cx);
@@ -5789,7 +6283,7 @@ impl SettingsView {
             .child(self.render_general(cx))
             .child(heading("settings-storage", "Storage & retention").mt_3())
             .child(storage)
-            .child(self.render_models(false, cx))
+            .child(self.render_models(cx))
             .child(heading("settings-privacy", "Privacy"))
             .child(self.render_privacy(cx))
             .child(self.render_your_voice(cx))
@@ -6406,17 +6900,13 @@ mod tests {
                     assert_eq!(choices.name, "Speaker grouping");
                     assert!(tree.nodes.iter().any(|node| node.name == "Suggest duplicates (%)"));
                     assert!(tree.nodes.iter().any(|node| node.name == "Merge automatically (%)"));
-                    tree.assert_heading("settings-models", 2);
                     tree.assert_heading("settings-models-role-asr", 3);
                     assert_eq!(
                         tree.read(tree.find("model-asr-synthetic-model-id-name")),
                         ("Label", "Synthetic model")
                     );
-                    assert!(
-                        tree.nodes
-                            .iter()
-                            .any(|node| node.name == "synthetic-model-id")
-                    );
+                    assert!(tree.nodes.iter().any(|node| node.name == "Show details for Synthetic model"));
+                    assert!(!tree.nodes.iter().any(|node| node.name == "synthetic-model-id"));
                 }
             })
             .unwrap();
@@ -6450,7 +6940,6 @@ mod tests {
             ("settings-title", Role::Heading, "Settings"),
             ("settings-general", Role::Heading, "General"),
             ("settings-storage", Role::Heading, "Storage & retention"),
-            ("settings-models", Role::Heading, "Models"),
             ("settings-privacy", Role::Heading, "Privacy"),
             ("settings-summaries", Role::Heading, "Summaries"),
             ("settings-mic-title", Role::Heading, "Microphone"),
@@ -6729,7 +7218,11 @@ mod tests {
             ] {
                 tree.find(id);
             }
-            assert!(tree.nodes.iter().all(|node| node.name != "Models"));
+            assert!(
+                tree.nodes
+                    .iter()
+                    .all(|node| node.name != "Models run locally. Downloads are verified.")
+            );
         });
     }
 
@@ -6820,6 +7313,91 @@ mod tests {
                 assert_eq!(view.words.read(cx).value().as_ref(), "TEST");
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn model_catalog_fits_the_settings_pane_at_the_largest_text_size(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, window) =
+            settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
+        state.update(cx, |state, cx| {
+            let mut config = state.config().clone();
+            config.appearance.reading_size = ReadingSize::Largest;
+            state.set_config(config, cx);
+        });
+        let mut visual = gpui::VisualTestContext::from_window(window.into(), cx);
+        visual.simulate_resize(gpui::size(px(640.), px(480.)));
+        window.update(&mut visual, |view, window, cx| {
+            view.set_page(SettingsPage::Transcription, window, cx);
+            view.models.advanced = true;
+            view.models.details = Some("model-asr-clover".into());
+            view.models.list = parse_models_list(&serde_json::json!({"models": [
+                {"id": "acorn", "display_name": "Acorn", "roles": ["asr", "live"], "state": "installed",
+                 "active_for": ["live"], "license_verified": true},
+                {"id": "clover", "display_name": "Clover Voice", "roles": ["asr"], "state": "installed",
+                 "license_verified": true, "download_hosts": ["huggingface.co", "raw.githubusercontent.com"]},
+                {"id": "birch", "display_name": "Birch Transcription Model With A Longer Name", "roles": ["asr"],
+                 "state": "missing", "has_model_files": true, "license_verified": true},
+                {"id": "elm", "display_name": "Elm", "roles": ["asr"], "state": "missing",
+                 "platform_supported": false, "license_verified": true},
+                {"id": "fir", "display_name": "Fir", "roles": ["asr"], "state": "missing",
+                 "license_verified": true}
+            ]}));
+            view.models.pulls.insert("fir".into(), PullState::Running(Some(42)));
+        }).unwrap();
+        let scroll = window
+            .update(&mut visual, |view, _, _| view.page_scroll.clone())
+            .unwrap();
+        visual.update(|window, cx| {
+            crate::ui::apply_reading_size(ReadingSize::Largest, cx);
+            window.set_rem_size(cx.theme().font_size);
+            assert_eq!(window.rem_size(), px(32.));
+            window.draw(cx).clear(cx);
+            scroll.scroll_to_top_of_item(7);
+            window.refresh();
+            let tree = crate::ui::a11y_tree::draw_and_read(window, cx);
+            assert!(
+                tree.nodes
+                    .iter()
+                    .any(|node| node.name == "Use Clover Voice")
+            );
+            assert!(
+                tree.nodes
+                    .iter()
+                    .any(|node| node.name == "Delete Clover Voice")
+            );
+            assert!(!tree.nodes.iter().any(|node| node.name == "Delete Acorn"));
+            assert_eq!(tree.read(tree.find("model-asr-clover-id")).1, "clover");
+            assert_eq!(
+                tree.read(tree.find("model-asr-birch-state")).1,
+                "Incomplete download"
+            );
+            assert_eq!(
+                tree.read(tree.find("model-asr-elm-state")).1,
+                "Unavailable on this computer"
+            );
+            assert_eq!(
+                tree.read(tree.find("pull-asr-fir")).1,
+                "Downloading Fir: 42%"
+            );
+        });
+        let catalog = visual.debug_bounds("model-catalog").unwrap();
+        let card = scroll.bounds_for_item(7).unwrap();
+        assert!(catalog.right() <= card.right(), "{catalog:?} vs {card:?}");
+        for selector in [
+            "model-asr-acorn-row",
+            "model-asr-clover-row",
+            "model-asr-birch-row",
+            "model-asr-elm-row",
+            "model-asr-fir-row",
+        ] {
+            let row = visual.debug_bounds(selector).unwrap();
+            assert!(
+                row.right() <= catalog.right(),
+                "{selector}: {row:?} vs {catalog:?}"
+            );
+        }
+        assert_eq!(scroll.max_offset().x, px(0.));
     }
 
     #[gpui::test]
@@ -6922,6 +7500,18 @@ echo '{reply}'
                 assert_eq!(this.models.pulls.get("acorn"), Some(&PullState::Done))
             })
             .unwrap();
+
+        std::fs::write(&log, "").unwrap();
+        window.update(cx, |this, window, cx| {
+            this.models.list = parse_models_list(&serde_json::json!({"models": [
+                {"id": "acorn", "state": "installed", "roles": ["asr"], "license_verified": true}
+            ]}));
+            this.request_model("acorn".into(), Some("asr".into()), false, cx.focus_handle(), window, cx);
+        }).unwrap();
+        cx.run_until_parked();
+        let lines = std::fs::read_to_string(&log).unwrap();
+        assert!(lines.contains("models use asr acorn --require-installed"));
+        assert!(!lines.contains("models pull"));
     }
 
     #[gpui::test]
@@ -6977,6 +7567,123 @@ echo '{models}'
             assert_eq!(*kind, StatusKind::Failed);
             assert!(words.contains("Models already downloaded are kept."));
         });
+    }
+
+    #[gpui::test]
+    fn deleting_a_model_restores_focus_and_runs_only_after_confirmation(cx: &mut TestAppContext) {
+        use crate::test_support::{ps_path, ps_str, write_cli};
+
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("remove.log");
+        let reply = r#"{"removed":true}"#;
+        let listing = r#"{"models":[{"id":"clover","display_name":"Clover","roles":["asr"],"state":"installed","license_verified":true}]}"#;
+        let removed = listing.replace("installed", "missing");
+        let cli = write_cli(
+            &dir.path().join("remove-cli"),
+            &format!(
+                r#"case "$*" in
+ *'models remove'*) printf '%s' "$*" > '{}'; echo '{reply}';;
+ *'models list'*) if test -f '{}'; then echo '{removed}'; else echo '{listing}'; fi;;
+ *) echo '{{}}';;
+esac
+"#,
+                log.display(),
+                log.display(),
+            ),
+            &format!(
+                "if ($all -clike '*models remove*') {{fx_log_args {};fx_echo {}}} elseif ($all -clike '*models list*') {{if (Test-Path {}) {{fx_echo {}}} else {{fx_echo {}}}}} else {{fx_echo '{{}}'}}",
+                ps_path(&log),
+                ps_str(reply),
+                ps_path(&log),
+                ps_str(&removed),
+                ps_str(listing),
+            ),
+        );
+        let (_, view, vcx) = settings_root_window_with(cx, dir.path(), Config::default(), cli);
+        vcx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.set_page(SettingsPage::Transcription, window, cx);
+                this.models.advanced = true;
+                this.models.list = parse_models_list(&serde_json::from_str(listing).unwrap());
+            })
+        });
+        vcx.run_until_parked();
+        draw_twice(vcx);
+        vcx.update(|window, cx| {
+            view.update(cx, |this, _| {
+                this.page_scroll.scroll_to_top_of_item(7);
+                window.refresh();
+            })
+        });
+        let delete = "model-asr-clover-remove";
+        let details = "model-asr-clover-details";
+        let focused = |vcx: &mut gpui::VisualTestContext, id: &str| {
+            vcx.update(|window, _| {
+                gpui::base::test_support::snapshots(window)
+                    .into_iter()
+                    .any(|node| {
+                        node.focused() == Some(true)
+                            && node
+                                .path()
+                                .last()
+                                .is_some_and(|part| part.to_string() == id)
+                    })
+            })
+        };
+        click_button(vcx, delete);
+        assert!(!log.exists());
+        vcx.update(|window, cx| {
+            let tree = crate::ui::a11y_tree::draw_and_read(window, cx);
+            assert!(
+                tree.nodes
+                    .iter()
+                    .any(|node| node.role == "AlertDialog" && node.name == "Delete Clover?")
+            );
+        });
+        vcx.simulate_keystrokes("escape");
+        draw_twice(vcx);
+        assert!(focused(vcx, delete));
+        assert!(!log.exists());
+
+        let key = gpui::Keystroke::parse("enter").unwrap();
+        vcx.simulate_event(gpui::KeyDownEvent {
+            keystroke: key.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        vcx.simulate_event(gpui::KeyUpEvent { keystroke: key });
+        draw_twice(vcx);
+        click_button(vcx, "remove-model-accept");
+        assert!(
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .contains("models remove --yes -- clover")
+        );
+        assert!(focused(vcx, details));
+        vcx.update(|window, cx| {
+            let tree = crate::ui::a11y_tree::draw_and_read(window, cx);
+            assert!(
+                tree.nodes
+                    .iter()
+                    .any(|node| node.name == "Deleted the downloaded files for Clover.")
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn late_model_verification_cannot_restore_an_old_report(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, window) = settings_window(cx, dir.path(), Arc::new(FakeMicCapture::new(16_000)));
+        window
+            .update(cx, |this, _, cx| {
+                let generation = this.models.generation;
+                this.models.doctor_running = true;
+                this.load_models(cx);
+                this.finish_model_check(generation, Ok(serde_json::json!({"ok": true})), cx);
+                assert!(this.models.doctor.is_none());
+                assert!(!this.models.doctor_running);
+            })
+            .unwrap();
     }
 
     #[gpui::test]

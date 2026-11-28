@@ -6296,7 +6296,7 @@ impl SetupAssistant {
                 |this, profile, cx| this.choose_profile(profile, cx),
             ), cx,
         )).child(muted("setup-profiles-note",
-            "Both use the same speaker recognition model, so switching keeps your saved voices.", cx))
+            "These options use the same speaker recognition model, so switching keeps your saved voices.", cx))
             .children(self.profile_notice.as_ref().map(|notice| outcome_line("setup-profile-status", Role::Status, notice, cx)));
         let rows = match required_models(list) {
             Ok(rows) => rows,

@@ -2001,6 +2001,16 @@ pub(crate) enum ModelsCmd {
         id: String,
         #[arg(long)]
         allow_unverified_license: bool,
+        /// Require verified files on disk before changing to a local model.
+        #[arg(long)]
+        require_installed: bool,
+    },
+    /// Remove the cached files of an unused model.
+    Remove {
+        id: String,
+        /// Confirm deletion of the downloaded files.
+        #[arg(long, required = true)]
+        yes: bool,
     },
     /// Verify installed models (re-hashes their files); with `--live`, also
     /// load the profile's VAD and live model and run them over a synthetic

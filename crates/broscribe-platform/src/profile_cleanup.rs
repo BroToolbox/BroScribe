@@ -487,29 +487,90 @@ pub fn clean(
     skip: &[&str],
     ignore_case: bool,
 ) -> Result<Cleanup> {
-    let shape = &SHAPES[kind];
+    let mut plan = plan_cleanup(root, &SHAPES[kind], skip, kind == "run", ignore_case)?;
+    if apply {
+        plan.1
+            .sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
+    }
+    finish_cleanup(root, plan, apply)
+}
+
+/// Removes inventoried model files and pinned loose downloads. The caller
+/// holds the model lock and has checked the live settings. The first boolean
+/// reports whether any known files exist, including when only previewing.
+pub fn clean_model(
+    root: &Path,
+    loose_files: impl IntoIterator<Item = String>,
+    apply: bool,
+) -> Result<(bool, Cleanup)> {
+    let Some(mut shape) = model_shape(root) else {
+        return Ok((false, Cleanup::default()));
+    };
+    for file in loose_files {
+        shape.files.push(format!(".partial/{file}"));
+        shape.files.push(file);
+    }
+    let mut plan = plan_cleanup(root, &shape, &[], false, cfg!(windows))?;
+    let has_files = plan
+        .1
+        .iter()
+        .any(|(_, task)| matches!(task, Task::File { .. }));
+    if !has_files {
+        return Ok((false, plan.0));
+    }
+    // Keep the ownership records until their payloads are gone, including
+    // when a file is locked and removal has to be retried.
+    if apply {
+        plan.1.sort_by_key(|(path, task)| match task {
+            Task::EmptyDir => (2, std::cmp::Reverse(path.components().count())),
+            Task::File { .. }
+                if matches!(
+                    path.file_name().and_then(|name| name.to_str()),
+                    Some(".verified" | MODEL_PARTIAL_RECORD)
+                ) =>
+            {
+                (1, std::cmp::Reverse(0))
+            }
+            _ => (0, std::cmp::Reverse(0)),
+        });
+    }
+    finish_cleanup(root, plan, apply).map(|report| (true, report))
+}
+
+type CleanupPlan = (Cleanup, Vec<(PathBuf, Task)>);
+
+fn plan_cleanup(
+    root: &Path,
+    shape: &Shape,
+    skip: &[&str],
+    allow_sockets: bool,
+    ignore_case: bool,
+) -> Result<CleanupPlan> {
     let mut cleanup = Cleanup::default();
     let mut tasks = Vec::new();
     let meta = match std::fs::symlink_metadata(root) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(cleanup),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok((cleanup, tasks)),
         Err(error) => return Err(Error::io_at(root, error)),
     };
     if !meta.is_dir() || is_reparse(&meta) {
         cleanup.kept.push(root.to_path_buf());
-        return Ok(cleanup);
+        return Ok((cleanup, tasks));
     }
     plan(
         root,
-        kind == "run",
+        allow_sockets,
         shape,
         skip,
         ignore_case,
         &mut cleanup,
         &mut tasks,
     )?;
+    Ok((cleanup, tasks))
+}
+
+fn finish_cleanup(root: &Path, (mut cleanup, tasks): CleanupPlan, apply: bool) -> Result<Cleanup> {
     if apply {
-        tasks.sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
         for (path, task) in tasks {
             let meta = match std::fs::symlink_metadata(&path) {
                 Ok(meta) => meta,

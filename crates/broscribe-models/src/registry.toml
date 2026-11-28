@@ -143,6 +143,30 @@ sha256 = "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e"
 bytes = 40257283
 archive = false
 
+# WeSpeaker's VoxCeleb licence and the ResNet34-LM checkpoint card agree on CC BY 4.0.
+# https://github.com/wenet-e2e/wespeaker/blob/master/docs/pretrained.md#model-license
+# https://huggingface.co/Wespeaker/wespeaker-resnet34-LM/tree/f0c48c298fd835726c27956a5d617bad7115627e
+# Sherpa's ONNX export adds the metadata its speaker extractor requires.
+[[model]]
+id = "wespeaker-resnet34-lm"
+display_name = "WeSpeaker ResNet34-LM"
+roles = ["speaker_embedding"]
+runtime = "onnx"
+platforms = ["macos", "windows", "linux"]
+languages = ["en"]
+license = "CC-BY-4.0"
+license_verified = true
+accepts_hotwords = false
+
+[model.params]
+num_threads = 6
+
+[[model.files]]
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34_LM.onnx"
+sha256 = "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012"
+bytes = 26530550
+archive = false
+
 [[model]]
 id = "whisper-large-v3-turbo"
 display_name = "Whisper large-v3 turbo"
@@ -184,11 +208,69 @@ sha256 = "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
 bytes = 352078
 archive = false
 
+[[model]]
+id = "whisper-base"
+display_name = "Whisper base"
+roles = ["asr"]
+runtime = "whisper"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = true
+live_model = "parakeet-tdt-0.6b-v3"
+
+[model.params]
+model = "ggml-base-q5_1.bin"
+beam_size = 5
+num_threads = 6
+
+[[model.files]]
+url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base-q5_1.bin"
+sha256 = "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
+bytes = 59707625
+archive = false
+
+[[model.files]]
+url = "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b0a11594aec50892a02cd8d129eee2dfe93a8bb8/samples/jfk.wav"
+sha256 = "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+bytes = 352078
+archive = false
+
+[[model]]
+id = "whisper-small"
+display_name = "Whisper small"
+roles = ["asr"]
+runtime = "whisper"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = true
+live_model = "parakeet-tdt-0.6b-v3"
+
+[model.params]
+model = "ggml-small-q5_1.bin"
+beam_size = 5
+num_threads = 6
+
+[[model.files]]
+url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin"
+sha256 = "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"
+bytes = 190085487
+archive = false
+
+[[model.files]]
+url = "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b0a11594aec50892a02cd8d129eee2dfe93a8bb8/samples/jfk.wav"
+sha256 = "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+bytes = 352078
+archive = false
+
 # ---------------------------------------------------------------------------
 # Profiles (design §4.1 step 3, §8.3): the speech models the setup assistant and
 # `setup --profile` offer. Choosing one sets these four roles; the text-embedding
 # model and LLM providers stay as the user set them. `description` names the
-# speech model; the languages shown come from that model's `languages`. Both
+# speech model; the languages shown come from that model's `languages`. The shipped
 # profiles keep the same speaker-embedding model, so switching never re-embeds
 # the library. `default` matches the built-in config defaults. The live preview
 # model follows the ASR model (itself when it has the `live` role, else its
@@ -207,6 +289,23 @@ id = "multilingual"
 description = "Whisper large-v3 turbo"
 vad = "silero-vad"
 asr = "whisper-large-v3-turbo"
+diarization = "pyannote-segmentation-3.0"
+speaker_embedding = "nemo-titanet-large"
+
+# ---------------------------------------------------------------------------
+[[profile]]
+id = "whisper-base"
+description = "Whisper base"
+vad = "silero-vad"
+asr = "whisper-base"
+diarization = "pyannote-segmentation-3.0"
+speaker_embedding = "nemo-titanet-large"
+
+[[profile]]
+id = "whisper-small"
+description = "Whisper small"
+vad = "silero-vad"
+asr = "whisper-small"
 diarization = "pyannote-segmentation-3.0"
 speaker_embedding = "nemo-titanet-large"
 
@@ -462,4 +561,102 @@ archive = false
 url = "https://huggingface.co/minishlab/potion-multilingual-128M/resolve/73908c3438cf03b6a01bcb9611d62b23d0726f08/config.json"
 sha256 = "595e4cab2093732efd5dbe084fd5c1826b5eea693b73b4c1fd971672867d2e54"
 bytes = 271
+archive = false
+
+[[model]]
+id = "potion-base-8m"
+display_name = "Potion Base 8M"
+roles = ["text_embedding"]
+runtime = "model2vec"
+platforms = ["macos", "windows", "linux"]
+languages = ["en"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = false
+
+[model.params]
+max_length = 512
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-base-8M/resolve/bf8b056651a2c21b8d2565580b8569da283cab23/model.safetensors"
+sha256 = "f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2"
+bytes = 30236760
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-base-8M/resolve/bf8b056651a2c21b8d2565580b8569da283cab23/tokenizer.json"
+sha256 = "e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50"
+bytes = 683666
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-base-8M/resolve/bf8b056651a2c21b8d2565580b8569da283cab23/config.json"
+sha256 = "2a6ac0e9aaa356a68a5688070db78fc3a464fefe85d2f06a1905ce3718687553"
+bytes = 202
+archive = false
+
+[[model]]
+id = "potion-retrieval-32m"
+display_name = "Potion Retrieval 32M"
+roles = ["text_embedding"]
+runtime = "model2vec"
+platforms = ["macos", "windows", "linux"]
+languages = ["en"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = false
+
+[model.params]
+max_length = 512
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-retrieval-32M/resolve/6fc8051fab2a1e0ee76689cf08c853792ac285e7/model.safetensors"
+sha256 = "07609e5bd33aad37900b3fd62f4ec96f6daec88ca4d46b9d8b928bfababf6ea0"
+bytes = 129210456
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-retrieval-32M/resolve/6fc8051fab2a1e0ee76689cf08c853792ac285e7/tokenizer.json"
+sha256 = "7d75cbc54318138807c401b0f0c9721117c628b39de8e8e0edb6cb17e0ee7d18"
+bytes = 1493150
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/potion-retrieval-32M/resolve/6fc8051fab2a1e0ee76689cf08c853792ac285e7/config.json"
+sha256 = "63c00d90824c832c04ec1d02b6a983fb90489bf049f29fbff15ba481b8a432ee"
+bytes = 202
+archive = false
+
+# Minish's quantized multilingual model includes Portuguese and uses the
+# model2vec runtime's native int8 support.
+[[model]]
+id = "blink-multilingual-64m-int8"
+display_name = "Blink Multilingual 64M (INT8)"
+roles = ["text_embedding"]
+runtime = "model2vec"
+platforms = ["macos", "windows", "linux"]
+languages = ["*"]
+license = "MIT"
+license_verified = true
+accepts_hotwords = false
+
+[model.params]
+max_length = 512
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/blink-multilingual-64M-int8/resolve/de97a396996d93b039aa48463ab34f5459657529/model.safetensors"
+sha256 = "728507cfe6788644c6186c18d883c3804468cd14fa317d938a596c12b34df88d"
+bytes = 64000088
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/blink-multilingual-64M-int8/resolve/de97a396996d93b039aa48463ab34f5459657529/tokenizer.json"
+sha256 = "5aaf584e194ef973233f483a720bfd9b2d8298690c6958bdded99bc2e3b4c4a2"
+bytes = 7417320
+archive = false
+
+[[model.files]]
+url = "https://huggingface.co/minishlab/blink-multilingual-64M-int8/resolve/de97a396996d93b039aa48463ab34f5459657529/config.json"
+sha256 = "07b3e49b8367ff035905f8aafeddbcdaad03199e56611158ba1fc68f619f5387"
+bytes = 84
 archive = false
