@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-integrations",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-capture"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-ipc",
@@ -954,7 +954,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-capture",
  "broscribe-core",
@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-detect"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-platform",
  "serde",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-dsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-dsp",
  "rustfft",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-integrations"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "broscribe-core",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-ipc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-readers",
@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-models"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-platform",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-capture",
  "broscribe-core",
@@ -1102,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "chrono",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-platform-linux"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-io",
  "atspi 0.30.0",
@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-platform-macos"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "block2 0.6.2",
  "broscribe-platform",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-platform-native"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-ipc",
@@ -1192,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-platform-unix"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "tempfile",
@@ -1201,7 +1201,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-platform-windows"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-ipc",
  "broscribe-platform",
@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-readers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-platform",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-update-runner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-platform",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-updates"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-core",
  "broscribe-platform",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "broscribe-worker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-capture",
  "broscribe-core",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "broscribed"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "broscribe-capture",
  "broscribe-core",
