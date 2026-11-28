@@ -132,7 +132,8 @@ impl ModelStore {
             .is_ok_and(|(has_files, _)| has_files)
     }
 
-    /// Removes only files identified by the install, download or registry.
+    /// Removes only files listed by the install marker or the download's
+    /// staging record.
     /// The caller holds the model and config locks.
     pub fn remove_model_files(&self, entry: &ModelEntry) -> Result<bool> {
         self.clean_model(entry, true)

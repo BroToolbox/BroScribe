@@ -405,11 +405,8 @@ function Read-ModelShape($folder) {
   $badPath = $modelBadPath
   if ($record -and !((@($record.files | ForEach-Object { $_.path }) + @($record.sources | ForEach-Object { $_.file })) -match $badPath)) {
     $model.files += '.verified'
-    foreach ($file in $record.files) {
-      Add-ModelPath $model $file.path $false
-      Add-ModelPath $model ('.partial/' + $file.path) $false
-    }
-    foreach ($source in $record.sources) { Add-ModelPath $model ('.partial/' + $source.file) $false }
+    # The marker lists installed files only. Staging belongs to the download's own record.
+    foreach ($file in $record.files) { Add-ModelPath $model $file.path $false }
   }
   $partial = [IO.Path]::Combine($folder, '.partial')
   $entries = Read-StagingRecord $folder

@@ -468,13 +468,11 @@ fn model_shape(root: &Path) -> Option<Shape> {
             && record.files.iter().all(|file| safe(&file.path))
             && record.sources.iter().all(|source| safe(&source.file))
     }) {
+        // The marker lists installed files only. Staging belongs to the
+        // download's own record.
         shape.files.push(".verified".into());
         for ModelFile { path } in marker.files {
-            add(&mut shape, format!(".partial/{path}"), false);
             add(&mut shape, path, false);
-        }
-        for ModelSource { file } in marker.sources {
-            add(&mut shape, format!(".partial/{file}"), false);
         }
     }
     let partial = root.join(".partial");

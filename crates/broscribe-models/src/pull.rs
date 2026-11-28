@@ -1098,15 +1098,56 @@ mod tests {
         // Nothing BroScribe installed is there to remove.
         assert!(store.lock_for_removal(&model).unwrap().is_none());
         assert!(!store.remove_model_files(&model).unwrap());
-        // A download that fails its checksum, then one that succeeds.
+        // A download refuses before fetching anything.
         let options = opts(mirror.path());
-        for bytes in [&b"bad!!"[..], &b"model"[..]] {
-            std::fs::write(mirror.path().join(name), bytes).unwrap();
-            pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap_err();
-            assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
-        }
+        std::fs::write(mirror.path().join(name), b"model").unwrap();
         let error = pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap_err();
         assert_eq!(error.code(), "model_cache_has_other_files");
+        assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
+        // The same file appearing during a download that fails its checksum.
+        std::fs::remove_file(&mine).unwrap();
+        std::fs::write(mirror.path().join(name), b"bad!!").unwrap();
+        let error = pull(
+            &model,
+            data.path(),
+            &options,
+            &mut |_, _| {
+                let _ = std::fs::write(&mine, b"mine");
+            },
+            &x(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("SHA-256 mismatch"), "{error}");
+        assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
+    }
+
+    #[test]
+    fn staged_names_in_the_install_marker_do_not_own_staging() {
+        let data = tempfile::tempdir().unwrap();
+        let mirror = tempfile::tempdir().unwrap();
+        let name = "weights.onnx";
+        std::fs::write(mirror.path().join(name), b"model").unwrap();
+        let model = entry("tiny", vec![plain(name, b"model")]);
+        pull(
+            &model,
+            data.path(),
+            &opts(mirror.path()),
+            &mut |_, _| {},
+            &x(),
+        )
+        .unwrap();
+        let store = ModelStore::new(data.path());
+        let mine = store
+            .model_dir(&model.id)
+            .unwrap()
+            .join(PARTIAL_DIR)
+            .join(name);
+        std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+        std::fs::write(&mine, b"mine").unwrap();
+        let lock = store.lock_for_removal(&model).unwrap().unwrap();
+        assert!(store.remove_model_files(&model).unwrap());
+        drop(lock);
+        assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
     }
 
     #[test]

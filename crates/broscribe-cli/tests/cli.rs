@@ -4503,20 +4503,32 @@ fn model_removal_protects_configured_roles_and_in_progress_downloads() {
         std::fs::create_dir_all(&dir).unwrap();
         let entry = registry.require(id).unwrap();
         let name = entry.files[0].file_name();
-        std::fs::write(dir.join(name), b"cached").unwrap();
-        if entry.files[0].archive {
-            store
-                .mark_verified(&broscribe_models::VerifiedMarker {
-                    id: id.into(),
-                    sources: Vec::new(),
-                    files: vec![broscribe_models::store::InstalledFile {
-                        path: name.into(),
-                        bytes: 6,
-                        sha256: String::new(),
-                    }],
-                })
-                .unwrap();
+        if id == unused {
+            // An unfinished download: its file sits in staging with its record.
+            let partial = dir.join(".partial");
+            std::fs::create_dir_all(&partial).unwrap();
+            std::fs::write(partial.join(name), b"cached").unwrap();
+            broscribe_platform::profile_cleanup::ModelPartialEntries {
+                id: id.into(),
+                files: vec![name.into()],
+                ..Default::default()
+            }
+            .save(&partial)
+            .unwrap();
+            continue;
         }
+        std::fs::write(dir.join(name), b"cached").unwrap();
+        store
+            .mark_verified(&broscribe_models::VerifiedMarker {
+                id: id.into(),
+                sources: Vec::new(),
+                files: vec![broscribe_models::store::InstalledFile {
+                    path: name.into(),
+                    bytes: 6,
+                    sha256: String::new(),
+                }],
+            })
+            .unwrap();
     }
     let fail = |args: &[&str], code: &str| {
         let (status, out, err) = f.run(args);
