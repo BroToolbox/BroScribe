@@ -144,19 +144,19 @@ pub fn pull(
     std::fs::create_dir_all(&partial).map_err(|e| Error::io_at(&partial, e))?;
 
     // The last stop check: `install` replaces the earlier install.
-    let staged = stage(entry, &partial, opts, stop, progress, execution).and_then(|files| {
+    let staged = stage(entry, &partial, opts, stop, progress, execution).and_then(|staged| {
         stop.check()
             .map_err(|e| Error::io(format!("installing model {}", entry.id), e))?;
-        Ok(files)
+        Ok(staged)
     });
-    let files = match staged {
+    let (files, record) = match staged {
         Ok(files) => files,
         Err(e) => {
             let _ = clean_download(&dir, entry, ModelCleanup::RestartDownload);
             return Err(e);
         }
     };
-    install(&store, entry, &dir, &partial, files)?;
+    install(&store, entry, &dir, &partial, files, record)?;
     Ok(PullOutcome::Installed)
 }
 
@@ -245,7 +245,7 @@ impl<R: Read> Read for Bounded<R> {
 }
 
 /// Fetches, verifies and extracts every file into `partial`; returns the
-/// installed files relative to `partial`.
+/// installed files relative to `partial` and the staging record.
 fn stage(
     entry: &ModelEntry,
     partial: &Path,
@@ -253,7 +253,7 @@ fn stage(
     stop: Stop<'_>,
     progress: &mut dyn FnMut(u64, u64),
     execution: &ExecutionContext,
-) -> Result<Vec<InstalledFile>> {
+) -> Result<(Vec<InstalledFile>, ModelPartialEntries)> {
     let total = entry.total_bytes();
     let mut done = 0u64;
     progress(done, total);
@@ -272,6 +272,7 @@ fn stage(
             .filter(|f| f.archive)
             .map(|f| f.file_name().to_owned())
             .collect(),
+        promoting: false,
     };
     partial_entries.save(partial)?;
     let mut installed = Vec::new();
@@ -338,7 +339,7 @@ fn stage(
             });
         }
     }
-    Ok(installed)
+    Ok((installed, partial_entries))
 }
 
 /// Replaces the model folder's contents with the staged files, writing the
@@ -349,8 +350,12 @@ fn install(
     dir: &Path,
     partial: &Path,
     files: Vec<InstalledFile>,
+    mut record: ModelPartialEntries,
 ) -> Result<()> {
     clean_download(dir, entry, ModelCleanup::InstallDownload)?;
+    // From here an interrupted install leaves BroScribe's files at the root.
+    record.promoting = true;
+    record.save(partial)?;
     for item in read_dir(partial)? {
         if item.file_name() == MODEL_PARTIAL_RECORD {
             continue;
@@ -504,7 +509,7 @@ fn download(
     Ok(out)
 }
 
-/// Extracts regular files and folders of a `.tar.bz2` into `dest`, hashing
+/// Extracts the regular files of a `.tar.bz2` into `dest`, hashing
 /// each file and checking `stop` before every entry and read; other entry
 /// types are skipped and paths that could leave `dest` are refused.
 fn extract_tar_bz2(
@@ -877,6 +882,7 @@ mod tests {
             files: vec!["synthetic/w.onnx".into()],
             dirs: Vec::new(),
             sources: vec!["synthetic.tar.bz2".into()],
+            promoting: true,
         }
         .save(&partial)
         .unwrap();
@@ -890,6 +896,59 @@ mod tests {
             pull(&model, data.path(), &options, &mut |_, _| {}, &x()).unwrap(),
             PullOutcome::Installed
         );
+    }
+
+    #[test]
+    fn an_interrupted_download_keeps_root_files_it_never_installed() {
+        let mirror = tempfile::tempdir().unwrap();
+        let archive = tar_bz2("synthetic", &[("w.onnx", b"w")]);
+        let model = archive_entry(mirror.path(), &archive);
+        // A v0.1.0 record with the archive among the files, and a current
+        // record whose staged file still sits in `.partial`.
+        let records = [
+            r#"{"id":"tiny","files":["synthetic.tar.bz2","synthetic/w.onnx"],"dirs":[]}"#,
+            r#"{"id":"tiny","files":["synthetic/w.onnx"],"dirs":[],"sources":["synthetic.tar.bz2"]}"#,
+        ];
+        for record in records {
+            for remove in [false, true] {
+                let data = tempfile::tempdir().unwrap();
+                let store = ModelStore::new(data.path());
+                let dir = store.model_dir(&model.id).unwrap();
+                let partial = dir.join(PARTIAL_DIR);
+                std::fs::create_dir_all(partial.join("synthetic")).unwrap();
+                std::fs::create_dir_all(dir.join("synthetic")).unwrap();
+                std::fs::write(partial.join("synthetic/w.onnx"), b"w").unwrap();
+                std::fs::write(partial.join(MODEL_PARTIAL_RECORD), record).unwrap();
+                let kept = ["synthetic.tar.bz2", "synthetic/w.onnx"].map(|name| dir.join(name));
+                for path in &kept {
+                    std::fs::write(path, b"keep").unwrap();
+                }
+                if remove {
+                    let lock = store.lock_for_removal(&model).unwrap().unwrap();
+                    store.remove_model_files(&model).unwrap();
+                    drop(lock);
+                    assert!(!partial.join("synthetic/w.onnx").exists());
+                } else {
+                    let error = pull(
+                        &model,
+                        data.path(),
+                        &opts(mirror.path()),
+                        &mut |_, _| {},
+                        &x(),
+                    )
+                    .unwrap_err();
+                    assert_eq!(error.code(), "model_cache_has_other_files");
+                }
+                for path in &kept {
+                    assert_eq!(
+                        std::fs::read(path).unwrap(),
+                        b"keep",
+                        "{record} {}",
+                        path.display()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

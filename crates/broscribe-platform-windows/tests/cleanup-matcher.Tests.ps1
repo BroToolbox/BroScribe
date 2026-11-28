@@ -48,11 +48,21 @@ try {
   $partial = Join-Path $model '.partial'
   [void][IO.Directory]::CreateDirectory($partial)
   [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
-    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"]}')
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":["model.tar.bz2"]}')
+  $staged = Read-ModelShape $model
+  foreach ($path in @('.partial/assets/model.onnx', '.partial/model.tar.bz2')) {
+    if (!(Matches-CleanupRule $path $staged 'file')) { throw ('Missing staged file ' + $path) }
+  }
+  foreach ($path in @('assets/model.onnx', 'model.tar.bz2')) {
+    if (Matches-CleanupRule $path $staged 'file') { throw ('Claimed root file before install ' + $path) }
+  }
+  [IO.File]::WriteAllText((Join-Path $partial '.entries.json'),
+    '{"id":"test-model","files":["assets/model.onnx"],"dirs":["assets"],"sources":["model.tar.bz2"],"promoting":true}')
   $promoted = Read-ModelShape $model
   foreach ($path in @('assets/model.onnx', '.partial/assets/model.onnx')) {
     if (!(Matches-CleanupRule $path $promoted 'file')) { throw ('Missing promoted file ' + $path) }
   }
+  if (Matches-CleanupRule 'model.tar.bz2' $promoted 'file') { throw 'Claimed the archive at the model root' }
 
   $profile = Join-Path $temp 'orphan-profile'
   $journal = Join-Path $profile 'journal'

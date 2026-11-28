@@ -358,6 +358,10 @@ pub struct ModelPartialEntries {
     /// Downloads that stay in `.partial`, such as an archive before unpacking.
     #[serde(default)]
     pub sources: Vec<String>,
+    /// Set just before install moves `files` and `dirs` into the model
+    /// folder. Only then can those names at the model root be BroScribe's.
+    #[serde(default)]
+    pub promoting: bool,
 }
 
 /// Files the macOS Finder and Windows Explorer write into folders they show.
@@ -461,17 +465,22 @@ fn model_shape(root: &Path) -> Option<Shape> {
                     .files
                     .iter()
                     .chain(&record.dirs)
+                    .chain(&record.sources)
                     .all(|path| safe(path))
         })
     {
         shape.files.push(format!(".partial/{MODEL_PARTIAL_RECORD}"));
         for path in entries.files {
             add(&mut shape, format!(".partial/{path}"), false);
-            add(&mut shape, path, false);
+            if entries.promoting {
+                add(&mut shape, path, false);
+            }
         }
         for path in entries.dirs {
             add(&mut shape, format!(".partial/{path}"), true);
-            add(&mut shape, path, true);
+            if entries.promoting {
+                add(&mut shape, path, true);
+            }
         }
         for path in entries.sources {
             add(&mut shape, format!(".partial/{path}"), false);
@@ -546,10 +555,11 @@ pub fn clean_model(
     // Finder and Explorer metadata never names a model file, so it neither
     // blocks a download nor keeps an emptied model folder around.
     plan.0.kept.retain(|path| {
-        let metadata = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(is_os_metadata)
+        let metadata = path != root
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_os_metadata)
             && std::fs::symlink_metadata(path)
                 .is_ok_and(|meta| meta.is_file() && !is_reparse(&meta));
         if metadata {
@@ -857,6 +867,7 @@ mod tests {
             files: vec!["assets/model.onnx".into()],
             dirs: vec!["assets".into()],
             sources: Vec::new(),
+            promoting: true,
         }
         .save(&partial)
         .unwrap();
@@ -868,6 +879,31 @@ mod tests {
         assert_eq!(cleanup.kept, std::slice::from_ref(&keep));
         assert!(!partial.exists() && !model.join("assets/model.onnx").exists());
         assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
+    }
+
+    #[test]
+    fn a_download_that_has_not_started_installing_owns_nothing_at_the_model_root() {
+        let root = tempfile::tempdir().unwrap();
+        let model = root.path().join("models/synthetic.model");
+        let partial = model.join(".partial");
+        std::fs::create_dir_all(partial.join("assets")).unwrap();
+        std::fs::create_dir_all(model.join("assets")).unwrap();
+        std::fs::write(partial.join("assets/model.onnx"), b"staged").unwrap();
+        let keep = model.join("assets/model.onnx");
+        std::fs::write(&keep, b"synthetic user file").unwrap();
+        // A record from v0.1.0 lists the archive with the files and has no
+        // install flag.
+        std::fs::write(
+            partial.join(MODEL_PARTIAL_RECORD),
+            r#"{"id":"synthetic.model","files":["synthetic.tar.bz2","assets/model.onnx"],"dirs":["assets"]}"#,
+        )
+        .unwrap();
+        let archive = model.join("synthetic.tar.bz2");
+        std::fs::write(&archive, b"synthetic user copy").unwrap();
+        clean(root.path(), "data", true, &[], false).unwrap();
+        assert!(!partial.join("assets/model.onnx").exists());
+        assert_eq!(std::fs::read(keep).unwrap(), b"synthetic user file");
+        assert_eq!(std::fs::read(archive).unwrap(), b"synthetic user copy");
     }
 
     #[test]

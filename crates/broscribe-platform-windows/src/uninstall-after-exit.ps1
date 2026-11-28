@@ -400,16 +400,19 @@ function Read-ModelShape($folder) {
   $partial = [IO.Path]::Combine($folder, '.partial')
   if (Has-Type $partial $true) {
     $entries = Read-ModelRecord ([IO.Path]::Combine($partial, '.entries.json')) $id
-    if ($entries -and !((@($entries.files) + @($entries.dirs)) -match $badPath)) {
+    if ($entries -and !((@($entries.files) + @($entries.dirs) + @($entries.sources)) -match $badPath)) {
       $model.files += '.partial/.entries.json'
+      # Root names are BroScribe's only once install has started moving them.
+      $promoting = $entries.promoting -eq $true
       foreach ($file in $entries.files) {
         Add-ModelPath $model ('.partial/' + $file) $false
-        Add-ModelPath $model $file $false
+        if ($promoting) { Add-ModelPath $model $file $false }
       }
       foreach ($dir in $entries.dirs) {
         Add-ModelPath $model ('.partial/' + $dir) $true
-        Add-ModelPath $model $dir $true
+        if ($promoting) { Add-ModelPath $model $dir $true }
       }
+      foreach ($source in $entries.sources) { Add-ModelPath $model ('.partial/' + $source) $false }
     }
   }
   return $model
