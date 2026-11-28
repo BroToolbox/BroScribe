@@ -1638,7 +1638,7 @@ fn fact(
 
 /// A user's tag as a chip on the muted fill; the caller adds the
 /// remove button, if any, as a child.
-pub fn tag_chip(text: impl Into<SharedString>, cx: &App) -> Div {
+pub fn tag_chip(content: impl IntoElement, cx: &App) -> Div {
     let theme = cx.theme();
     div()
         .flex_none()
@@ -1653,7 +1653,7 @@ pub fn tag_chip(text: impl Into<SharedString>, cx: &App) -> Div {
         .bg(theme.muted)
         .text_color(theme.foreground)
         .text_role(TextRole::Caption)
-        .child(text.into())
+        .child(content)
 }
 
 /// The tone of a confirmation: what its edge says before anyone reads it.

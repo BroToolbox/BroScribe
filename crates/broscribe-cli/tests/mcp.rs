@@ -2846,6 +2846,23 @@ fn mcp_uses_bounded_inline_contact_words_and_manifest_inputs() {
             ok(&client, "get_word_list", json!({})).await["words"],
             json!(["Acorn release"])
         );
+        let refused = call(&client, "remove_word", json!({"word":"Acorn release"})).await;
+        assert_eq!(refused.is_error, Some(true));
+        assert_eq!(
+            ok(&client, "get_word_list", json!({})).await["words"],
+            json!(["Acorn release"])
+        );
+        let removed = ok(
+            &client,
+            "remove_word",
+            json!({"word":"Acorn release","confirm":true}),
+        )
+        .await;
+        assert_eq!(removed["removed"], true);
+        assert_eq!(
+            ok(&client, "get_word_list", json!({})).await["words"],
+            json!([])
+        );
         let people = ok(
             &client,
             "import_contacts",

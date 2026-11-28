@@ -902,6 +902,35 @@ impl Server {
     }
 
     #[tool(
+        description = "Remove a saved recognition word or phrase by its exact text.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn remove_word(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(p): Parameters<RemoveWordInput>,
+    ) -> CallToolResult {
+        if !p.confirm {
+            return reply::<Value>(Err(Error::InvalidInput(
+                "Set confirm to true to remove the saved term.".into(),
+            )));
+        }
+        self.command_write(
+            &ctx,
+            Command::Settings {
+                action: SettingsCmd::RemoveWord { word: p.word },
+            },
+            None,
+        )
+        .await
+    }
+
+    #[tool(
         description = "Set the default handling for imported recordings.",
         annotations(
             read_only_hint = false,
